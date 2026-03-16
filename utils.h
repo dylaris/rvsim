@@ -15,4 +15,11 @@ typedef uint64_t u64;
 #define fatalf(fmt, ...) (fprintf(stderr, "%s:%d: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__), exit(1))
 #define fatal(msg) fatalf("%s", msg)
 
+#define ROUNDDOWN(x, k) ((x) & -(k))
+#define ROUNDUP(x, k)   (((x) + (k) - 1) & -(k))
+#define MIN(a, b)       (a) < (b) ? (a) : (b)
+#define MAX(a, b)       (a) < (b) ? (b) : (a)
+
+#define UNUSED(x)       ((void)(x))
+
 #endif // UTILS_H

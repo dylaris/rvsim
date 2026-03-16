@@ -1,6 +1,15 @@
 #include "mmu.h"
 #include "elf64.h"
 
+#include <stdio.h>
+
+static void mmu__load_segment(MMU *mmup, ProgHeader *phdrp, int fd)
+{
+    UNUSED(mmup);
+    UNUSED(phdrp);
+    UNUSED(fd);
+}
+
 void mmu_load_elf(MMU *mmup, FILE *fp)
 {
     ELFHeader ehdr;
@@ -19,4 +28,18 @@ void mmu_load_elf(MMU *mmup, FILE *fp)
 
     // Set entry point
     mmup->entry = ehdr.entry;
+
+    // Load segment
+    for (u64 i = 0; i < (u64) ehdr.phnum; i++) {
+        u64 offset = ehdr.phoff + i * sizeof(ProgHeader);
+        if (fseek(fp, (long) offset, SEEK_SET) != 0)
+            fatalf("seek file failed when loading No.%ld program header", i);
+
+        ProgHeader phdr;
+        if (fread((void *) &phdr, sizeof(ProgHeader), 1, fp) != 1)
+            fatal("file tool small");
+
+        if (phdr.type == PT_LOAD)
+            mmu__load_segment(mmup, &phdr, fileno(fp));
+    }
 }

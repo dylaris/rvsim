@@ -32,4 +32,15 @@ typedef struct {
     u16 shstrndx;         /* Section header string table index */
 } ELFHeader;
 
+typedef struct {
+    u32 type;            /* Segment type */
+    u32 flags;           /* Segment flags */
+    u64 offset;          /* Segment file offset */
+    u64 vaddr;           /* Segment virtual address */
+    u64 paddr;           /* Segment physical address */
+    u64 filesz;          /* Segment size in file */
+    u64 memsz;           /* Segment size in memory */
+    u64 align;           /* Segment alignment */
+} ProgHeader;
+
 #endif // ELF64_H

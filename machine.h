@@ -1,11 +1,11 @@
 #ifndef MACHINE_H
 #define MACHINE_H
 
-#include "state.h"
+#include "cpu.h"
 #include "mmu.h"
 
 typedef struct {
-    State state;
+    CPU cpu;
     MMU mmu;
 } Machine;
 

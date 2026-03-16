@@ -4,7 +4,7 @@ LDFLAGS =
 
 all: rvemu
 
-rvemu: one.c
+rvemu: one.c rvemu.c mmu.c machine.c
 	$(CC) $(CFLAGS) -o rvemu one.c $(LDFLAGS)
 
 clean:

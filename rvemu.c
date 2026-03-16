@@ -1,7 +1,14 @@
-#include <stdio.h>
+#include "machine.h"
+#include "utils.h"
 
-int main(void)
+int main(int argc, char **argv)
 {
-    printf("Hello, World\n");
+    Machine m;
+
+    if (argc != 2)
+        fatalf("Usage: %s <program>", argv[0]);
+
+    machine_load_program(&m, argv[1]);
+
     return 0;
 }

@@ -1,3 +1,5 @@
-#include "machine.c"
+#include "interpreter.c"
 #include "mmu.c"
+#include "decoder.c"
+#include "machine.c"
 #include "rvemu.c"

@@ -3,13 +3,14 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
 #include <sys/mman.h>
 
 static void mmu__load_segment(MMU *mmup, ProgHeader *phdrp, int fd)
 {
-    UNUSED(mmup);
+    (void) mmup;
 
     u64       pagesz = (u64) getpagesize();
     u64       offset = phdrp->offset;

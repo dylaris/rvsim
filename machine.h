@@ -10,5 +10,6 @@ typedef struct {
 } Machine;
 
 void machine_load_program(Machine *mp, const char *prog);
+BreakCode machine_step(Machine *mp);
 
 #endif // MACHINE_H

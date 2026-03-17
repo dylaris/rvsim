@@ -3,8 +3,16 @@
 
 #include "utils.h"
 
+typedef enum {
+    NONE,
+    DIRECT_JUMP,
+    INDIRECT_JUMP,
+    ECALL
+} BreakCode;
+
 typedef struct {
-    u64 gp_regs[32]; // General purpose registers
+    BreakCode brkcode;  // Reason for breaking out of the current block
+    u64 gp_regs[32];    // General purpose registers
     u64 pc;
 } CPU;
 

@@ -18,6 +18,7 @@ void exec_block_interp(CPU *cpup)
         // Decode
         inst_decode(&inst, data);
 
+#if 0
         // Execute
         funcs[inst.kind](cpup, &inst);
         cpup->gp_regs[RI_ZERO] = 0; // Writes to x0 are ignored; x0 is hardwired to 0
@@ -27,5 +28,6 @@ void exec_block_interp(CPU *cpup)
             break;
         else
             cpup->pc += inst.rvc ? 2 : 4;
+#endif
     }
 }

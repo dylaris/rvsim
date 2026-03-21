@@ -2,6 +2,8 @@
 #define UTILS_H
 
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 typedef int8_t   i8;
 typedef int16_t  i16;

@@ -164,5 +164,6 @@ typedef enum {
 } RegIndex;
 
 void inst_decode(Instruction *instp, u32 data);
+void inst_print(Instruction inst);
 
 #endif // DECODER_H

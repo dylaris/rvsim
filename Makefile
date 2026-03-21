@@ -1,14 +1,22 @@
-CC 	    = clang
-CFLAGS  = -ggdb -Wall -Wextra -O3
-LDFLAGS =
+CC 	   = clang
+CFLAGS = -ggdb -Wall -Wextra -O3 -Isrc/
+
+EXE_CFLAGS  = $(CFLAGS)
+EXE_LDFLAGS =
+
+LIB_CFLAGS  = $(CFLAGS) -fPIC
+LIB_LDFLAGS = -shared -Wl,--version-script=src/export.sym
 
 all: rvemu
 
-rvemu: one.c rvemu.c mmu.c machine.c
-	$(CC) $(CFLAGS) -o rvemu one.c $(LDFLAGS)
+rvemu: src/one.c
+	$(CC) $(EXE_CFLAGS) -o rvemu src/one.c $(EXE_LDFLAGS)
+
+lib: src/api.c
+	$(CC) $(LIB_CFLAGS) -o librvemu.so src/api.c $(LIB_LDFLAGS)
 
 clean:
-	rm -f rvemu
+	rm -f rvemu librvemu.so
 
 help:
 	@echo "===================================================="
@@ -16,6 +24,7 @@ help:
 	@echo "===================================================="
 	@echo "help:  		Display this information"
 	@echo "clean: 		Clean object files and executable file"
+	@echo "lib: 		Generate shared library"
 	@echo "===================================================="
 
-.PHONY: all clean help
+.PHONY: all clean help lib

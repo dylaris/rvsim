@@ -11,7 +11,7 @@ BreakCode machine_step(Machine *mp)
     while (1) {
         exec_block_interp(&mp->cpu);
 
-        if (mp->cpu.brkcode == DIRECT_JUMP || mp->cpu.brkcode == INDIRECT_JUMP)
+        if (mp->cpu.brkcode == JUMP)
             continue;
         else
             break;

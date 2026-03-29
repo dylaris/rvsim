@@ -13,6 +13,8 @@ typedef uint8_t  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
+typedef float    f32;
+typedef double   f64;
 
 #define fatalf(fmt, ...) (fprintf(stderr, "%s:%d: " fmt "\n", __FILE__, __LINE__, __VA_ARGS__), exit(1))
 #define fatal(msg) fatalf("%s", msg)

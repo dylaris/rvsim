@@ -188,11 +188,23 @@ def compare(index, annos, inst, inst_def):
         if act != exp:
             details["rs2"] = f"{exp} vs {act}"
             details["err"] = True
+    if "rs3" in expect:
+        exp = parse_int(expect["rs3"])
+        act = inst.rs3
+        if act != exp:
+            details["rs3"] = f"{exp} vs {act}"
+            details["err"] = True
     if "imm" in expect:
         exp = parse_int(expect["imm"])
         act = inst.imm
         if act != exp:
             details["imm"] = f"{exp} vs {act}"
+            details["err"] = True
+    if "rvc" in expect:
+        exp = True if expect["rvc"] == "true" else False
+        act = inst.rvc
+        if act != exp:
+            details["rvc"] = f"{exp} vs {act}"
             details["err"] = True
 
     return details

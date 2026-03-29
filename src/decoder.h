@@ -5,42 +5,170 @@
 
 #include <stdbool.h>
 
-typedef enum {
-    IK_LB, IK_LH, IK_LW, IK_LD, IK_LBU, IK_LHU, IK_LWU,
-    IK_FENCE, IK_FENCE_I,
-    IK_ADDI, IK_SLLI, IK_SLTI, IK_SLTIU, IK_XORI, IK_SRLI, IK_SRAI, IK_ORI, IK_ANDI, IK_AUIPC, IK_ADDIW, IK_SLLIW, IK_SRLIW, IK_SRAIW,
-    IK_SB, IK_SH, IK_SW, IK_SD,
-    IK_ADD, IK_SLL, IK_SLT, IK_SLTU, IK_XOR, IK_SRL, IK_OR, IK_AND,
-    IK_MUL, IK_MULH, IK_MULHSU, IK_MULHU, IK_DIV, IK_DIVU, IK_REM, IK_REMU,
-    IK_SUB, IK_SRA, IK_LUI,
-    IK_ADDW, IK_SLLW, IK_SRLW, IK_MULW, IK_DIVW, IK_DIVUW, IK_REMW, IK_REMUW, IK_SUBW, IK_SRAW,
-    IK_BEQ, IK_BNE, IK_BLT, IK_BGE, IK_BLTU, IK_BGEU,
-    IK_JALR, IK_JAL, IK_ECALL, IK_EBREAK,
-    IK_CSRRC, IK_CSRRCI, IK_CSRRS, IK_CSRRSI, IK_CSRRW, IK_CSRRWI,
-    IK_FLW, IK_FSW,
-    IK_FMADD_S, IK_FMSUB_S, IK_FNMSUB_S, IK_FNMADD_S, IK_FADD_S, IK_FSUB_S, IK_FMUL_S, IK_FDIV_S, IK_FSQRT_S,
-    IK_FSGNJ_S, IK_FSGNJN_S, IK_FSGNJX_S,
-    IK_FMIN_S, IK_FMAX_S,
-    IK_FCVT_W_S, IK_FCVT_WU_S, IK_FMV_X_W,
-    IK_FEQ_S, IK_FLT_S, IK_FLE_S, IK_FCLASS_S,
-    IK_FCVT_S_W, IK_FCVT_S_WU, IK_FMV_W_X, IK_FCVT_L_S, IK_FCVT_LU_S,
-    IK_FCVT_S_L, IK_FCVT_S_LU,
-    IK_FLD, IK_FSD,
-    IK_FMADD_D, IK_FMSUB_D, IK_FNMSUB_D, IK_FNMADD_D,
-    IK_FADD_D, IK_FSUB_D, IK_FMUL_D, IK_FDIV_D, IK_FSQRT_D,
-    IK_FSGNJ_D, IK_FSGNJN_D, IK_FSGNJX_D,
-    IK_FMIN_D, IK_FMAX_D,
-    IK_FCVT_S_D, IK_FCVT_D_S,
-    IK_FEQ_D, IK_FLT_D, IK_FLE_D, IK_FCLASS_D,
-    IK_FCVT_W_D, IK_FCVT_WU_D, IK_FCVT_D_W, IK_FCVT_D_WU,
-    IK_FCVT_L_D, IK_FCVT_LU_D,
-    IK_FMV_X_D, IK_FCVT_D_L, IK_FCVT_D_LU, IK_FMV_D_X,
-    IK_LR_W, IK_SC_W,
-    IK_AMOSWAP_W, IK_AMOADD_W, IK_AMOAND_W, IK_AMOOR_W, IK_AMOXOR_W, IK_AMOMAX_W, IK_AMOMIN_W, IK_AMOMAXU_W, IK_AMOMINU_W,
-    IK_LR_D, IK_SC_D,
-    IK_AMOSWAP_D, IK_AMOADD_D, IK_AMOAND_D, IK_AMOOR_D, IK_AMOXOR_D, IK_AMOMAX_D, IK_AMOMIN_D, IK_AMOMAXU_D, IK_AMOMINU_D,
-    num_insts,
-} InstKind;
+#define _
+
+#define INSTRUCTIONS(X) \
+    X(lb,  LOAD, i8,  _, _, _) \
+    X(lh,  LOAD, i16, _, _, _) \
+    X(lw,  LOAD, i32, _, _, _) \
+    X(ld,  LOAD, i64, _, _, _) \
+    X(lbu, LOAD, u8,  _, _, _) \
+    X(lhu, LOAD, u16, _, _, _) \
+    X(lwu, LOAD, u32, _, _, _) \
+    X(fence,   EMPTY, _, _, _, _) \
+    X(fence_i, EMPTY, _, _, _, _) \
+    X(ebreak,  EMPTY, _, _, _, _) \
+    X(auipc,   AUIPC, _, _, _, _) \
+    X(lui,     LUI,   _, _, _, _) \
+    X(ecall,   ECALL, _, _, _, _) \
+    X(addi,  OP_IMM, rs1 + imm,                            _, _, _) \
+    X(slli,  OP_IMM, rs1 << (imm & 0x3f),                  _, _, _) \
+    X(slti,  OP_IMM, (i64)rs1 < (i64)imm,                  _, _, _) \
+    X(sltiu, OP_IMM, (u64)rs1 < (u64)imm,                  _, _, _) \
+    X(xori,  OP_IMM, rs1 ^ imm,                            _, _, _) \
+    X(srli,  OP_IMM, rs1 >> (imm & 0x3f),                  _, _, _) \
+    X(srai,  OP_IMM, (i64)rs1 >> (imm & 0x3f),             _, _, _) \
+    X(ori,   OP_IMM, rs1 | (u64)imm,                       _, _, _) \
+    X(andi,  OP_IMM, rs1 & (u64)imm,                       _, _, _) \
+    X(addiw, OP_IMM, (i64)(i32)(rs1 + imm),                _, _, _) \
+    X(slliw, OP_IMM, (i64)(i32)(rs1 << (imm & 0x1f)),      _, _, _) \
+    X(srliw, OP_IMM, (i64)(i32)((u32)rs1 >> (imm & 0x1f)), _, _, _) \
+    X(sraiw, OP_IMM, (i64)((i32)rs1 >> (imm & 0x1f)),      _, _, _) \
+    X(sb, STORE, u8,  _, _, _) \
+    X(sh, STORE, u16, _, _, _) \
+    X(sw, STORE, u32, _, _, _) \
+    X(sd, STORE, u64, _, _, _) \
+    X(add,    OP_REG, rs1 + rs2,                                                            _, _, _) \
+    X(sll,    OP_REG, rs1 << (rs2 & 0x3f),                                                  _, _, _) \
+    X(slt,    OP_REG, (i64)rs1 < (i64)rs2,                                                  _, _, _) \
+    X(sltu,   OP_REG, (u64)rs1 < (u64)rs2,                                                  _, _, _) \
+    X(xor,    OP_REG, rs1 ^ rs2,                                                            _, _, _) \
+    X(srl,    OP_REG, rs1 >> (rs2 & 0x3f),                                                  _, _, _) \
+    X(or,     OP_REG, rs1 | rs2,                                                            _, _, _) \
+    X(and,    OP_REG, rs1 & rs2,                                                            _, _, _) \
+    X(mul,    OP_REG, rs1 * rs2,                                                            _, _, _) \
+    X(mulh,   OP_REG, _mulh(rs1, rs2),                                                      _, _, _) \
+    X(mulhsu, OP_REG, _mulhsu(rs1, rs2),                                                    _, _, _) \
+    X(mulhu,  OP_REG, _mulhu(rs1, rs2),                                                     _, _, _) \
+    X(div,    OP_REG, _div(rs1, rs2),                                                       _, _, _) \
+    X(divu,   OP_REG, rs2 == 0 ? UINT64_MAX : rs1 / rs2,                                    _, _, _) \
+    X(rem,    OP_REG, _rem(rs1, rs2),                                                       _, _, _) \
+    X(remu,   OP_REG, rs2 == 0 ? rs1 : rs1 % rs2,                                           _, _, _) \
+    X(sub,    OP_REG, rs1 - rs2,                                                            _, _, _) \
+    X(sra,    OP_REG, (i64)rs1 >> (rs2 & 0x3f),                                             _, _, _) \
+    X(addw,   OP_REG, (i64)(i32)(rs1 + rs2),                                                _, _, _) \
+    X(sllw,   OP_REG, (i64)(i32)(rs1 << (rs2 & 0x1f)),                                      _, _, _) \
+    X(srlw,   OP_REG, (i64)(i32)((u32)rs1 >> (rs2 & 0x1f)),                                 _, _, _) \
+    X(mulw,   OP_REG, (i64)(i32)(rs1 * rs2),                                                _, _, _) \
+    X(divw,   OP_REG, rs2 == 0 ? UINT64_MAX : (i32)((i64)(i32)rs1 / (i64)(i32)rs2),         _, _, _) \
+    X(divuw,  OP_REG, rs2 == 0 ? UINT64_MAX : (i32)((u32)rs1 / (u32)rs2),                   _, _, _) \
+    X(remw,   OP_REG, rs2 == 0 ? (i64)(i32)rs1 : (i64)(i32)((i64)(i32)rs1 % (i64)(i32)rs2), _, _, _) \
+    X(remuw,  OP_REG, rs2 == 0 ? (i64)(i32)(u32)rs1 : (i64)(i32)((u32)rs1 % (u32)rs2),      _, _, _) \
+    X(subw,   OP_REG, (i64)(i32)(rs1 - rs2),                                                _, _, _) \
+    X(sraw,   OP_REG, (i64)(i32)((i32)rs1 >> (rs2 & 0x1f)),                                 _, _, _) \
+    X(beq,  BRANCH, (u64)rs1 == (u64)rs2, _, _, _) \
+    X(bne,  BRANCH, (u64)rs1 != (u64)rs2, _, _, _) \
+    X(blt,  BRANCH, (i64)rs1 <  (i64)rs2, _, _, _) \
+    X(bge,  BRANCH, (i64)rs1 >= (i64)rs2, _, _, _) \
+    X(bltu, BRANCH, (u64)rs1 <  (u64)rs2, _, _, _) \
+    X(bgeu, BRANCH, (u64)rs1 >= (u64)rs2, _, _, _) \
+    X(jalr, JUMP, (rs1 + (i64)imm) & ~1ULL, _, _, _) \
+    X(jal,  JUMP, pc + (i64)imm,            _, _, _) \
+    X(csrrc,  CSR, _, _, _, _) \
+    X(csrrci, CSR, _, _, _, _) \
+    X(csrrs,  CSR, _, _, _, _) \
+    X(csrrsi, CSR, _, _, _, _) \
+    X(csrrw,  CSR, _, _, _, _) \
+    X(csrrwi, CSR, _, _, _, _) \
+    X(flw, FP_LOAD, u32, _, _, _) \
+    X(fld, FP_LOAD, u64, _, _, _) \
+    X(fsw, FP_STORE, u32, _, _, _) \
+    X(fsd, FP_STORE, u64, _, _, _) \
+    X(fmadd_s,   FP_FMA4, s, f32, rs1 * rs2 + rs3,    _) \
+    X(fmsub_s,   FP_FMA4, s, f32, rs1 * rs2 - rs3,    _) \
+    X(fnmsub_s,  FP_FMA4, s, f32, -(rs1 * rs2) + rs3, _) \
+    X(fnmadd_s,  FP_FMA4, s, f32, -(rs1 * rs2) - rs3, _) \
+    X(fmadd_d,   FP_FMA4, d, f64, rs1 * rs2 + rs3,    _) \
+    X(fmsub_d,   FP_FMA4, d, f64, rs1 * rs2 - rs3,    _) \
+    X(fnmsub_d,  FP_FMA4, d, f64, -(rs1 * rs2) + rs3, _) \
+    X(fnmadd_d,  FP_FMA4, d, f64, -(rs1 * rs2) - rs3, _) \
+    X(fadd_s,  FP_BINOP, s, f32, rs1 + rs2,             _) \
+    X(fsub_s,  FP_BINOP, s, f32, rs1 - rs2,             _) \
+    X(fmul_s,  FP_BINOP, s, f32, rs1 * rs2,             _) \
+    X(fdiv_s,  FP_BINOP, s, f32, rs1 / rs2,             _) \
+    X(fsqrt_s, FP_BINOP, s, f32, sqrtf(rs1),            _) \
+    X(fmin_s,  FP_BINOP, s, f32, rs1 < rs2 ? rs1 : rs2, _) \
+    X(fmax_s,  FP_BINOP, s, f32, rs1 > rs2 ? rs1 : rs2, _) \
+    X(fadd_d,  FP_BINOP, d, f64, rs1 + rs2,             _) \
+    X(fsub_d,  FP_BINOP, d, f64, rs1 - rs2,             _) \
+    X(fmul_d,  FP_BINOP, d, f64, rs1 * rs2,             _) \
+    X(fdiv_d,  FP_BINOP, d, f64, rs1 / rs2,             _) \
+    X(fsqrt_d, FP_BINOP, d, f64, sqrt(rs1),             _) \
+    X(fmin_d,  FP_BINOP, d, f64, rs1 < rs2 ? rs1 : rs2, _) \
+    X(fmax_d,  FP_BINOP, d, f64, rs1 > rs2 ? rs1 : rs2, _) \
+    X(fsgnj_s,  FP_SGNJ, w, u32, false, false) \
+    X(fsgnjn_s, FP_SGNJ, w, u32, true,  false) \
+    X(fsgnjx_s, FP_SGNJ, w, u32, false, true)  \
+    X(fsgnj_d,  FP_SGNJ, q, u64, false, false) \
+    X(fsgnjn_d, FP_SGNJ, q, u64, true,  false) \
+    X(fsgnjx_d, FP_SGNJ, q, u64, false, true)  \
+    X(fcvt_w_s,  FP_XFER_F2I, s, f32, (i64)(i32)llrintf(src),      _) \
+    X(fcvt_wu_s, FP_XFER_F2I, s, f32, (i64)(i32)(u32)llrintf(src), _) \
+    X(fmv_x_w,   FP_XFER_F2I, w, u32, (i64)(i32)src,               _) \
+    X(fcvt_l_s,  FP_XFER_F2I, s, f32, (i64)llrintf(src),           _) \
+    X(fcvt_lu_s, FP_XFER_F2I, s, f32, (u64)llrintf(src),           _) \
+    X(fcvt_s_lu, FP_XFER_F2I, s, f32, (f32)(u64)src,               _) \
+    X(fcvt_w_d,  FP_XFER_F2I, d, f64, (i64)(i32)llrint(src),       _) \
+    X(fcvt_wu_d, FP_XFER_F2I, d, f64, (i64)(i32)(u32)llrint(src),  _) \
+    X(fcvt_l_d,  FP_XFER_F2I, d, f64, (i64)llrint(src),            _) \
+    X(fcvt_lu_d, FP_XFER_F2I, d, f64, (u64)llrint(src),            _) \
+    X(fmv_x_d,   FP_XFER_F2I, q, u64, src,                         _) \
+    X(fcvt_s_w,  FP_XFER_I2F, s, (f32)(i32)src, _, _) \
+    X(fcvt_s_wu, FP_XFER_I2F, s, (f32)(u32)src, _, _) \
+    X(fmv_w_x,   FP_XFER_I2F, w, (u32)src,      _, _) \
+    X(fcvt_s_l,  FP_XFER_I2F, s, (f32)(i64)src, _, _) \
+    X(fcvt_d_w,  FP_XFER_I2F, d, (f64)(i64)src, _, _) \
+    X(fcvt_d_wu, FP_XFER_I2F, d, (f64)(u64)src, _, _) \
+    X(fcvt_d_l,  FP_XFER_I2F, d, (f64)(i64)src, _, _) \
+    X(fcvt_d_lu, FP_XFER_I2F, d, (f64)(u64)src, _, _) \
+    X(fmv_d_x,   FP_XFER_I2F, q, src,           _, _) \
+    X(fcvt_s_d, FP_XFER_F2F, d, s, f64, (f32)src) \
+    X(fcvt_d_s, FP_XFER_F2F, s, d, f32, (f64)src) \
+    X(feq_s, FP_CMP, s, f32, rs1 == rs2, _) \
+    X(flt_s, FP_CMP, s, f32, rs1 <  rs2, _) \
+    X(fle_s, FP_CMP, s, f32, rs1 <= rs2, _) \
+    X(feq_d, FP_CMP, d, f64, rs1 == rs2, _) \
+    X(flt_d, FP_CMP, d, f64, rs1 <  rs2, _) \
+    X(fle_d, FP_CMP, d, f64, rs1 <= rs2, _) \
+    X(fclass_s, FP_CLASS, s, f32, _, _) \
+    X(fclass_d, FP_CLASS, d, f64, _, _) \
+
+    // X(lr_w, EMPTY, 0) \
+    // X(sc_w, EMPTY, 0) \
+    // X(amoswap_w, EMPTY, 0) \
+    // X(amoadd_w, EMPTY, 0) \
+    // X(amoand_w, EMPTY, 0) \
+    // X(amoor_w, EMPTY, 0) \
+    // X(amoxor_w, EMPTY, 0) \
+    // X(amomax_w, EMPTY, 0) \
+    // X(amomin_w, EMPTY, 0) \
+    // X(amomaxu_w, EMPTY, 0) \
+    // X(amominu_w, EMPTY, 0) \
+    // X(lr_d, EMPTY, 0) \
+    // X(sc_d, EMPTY, 0) \
+    // X(amoswap_d, EMPTY, 0) \
+    // X(amoadd_d, EMPTY, 0) \
+    // X(amoand_d, EMPTY, 0) \
+    // X(amoor_d, EMPTY, 0) \
+    // X(amoxor_d, EMPTY, 0) \
+    // X(amomax_d, EMPTY, 0) \
+    // X(amomin_d, EMPTY, 0) \
+    // X(amomaxu_d, EMPTY, 0) \
+    // X(amominu_d, EMPTY,)
+
+#define GEN(name, tag, a1, a2, a3, a4) IK_##name,
+typedef enum { INSTRUCTIONS(GEN) num_insts, } InstKind;
+#undef GEN // Generate instruction kind
 
 typedef struct {
     i8 rd;
@@ -78,14 +206,10 @@ struct InstDef {
 };
 
 typedef enum {
-    RI_ZERO, RI_RA, RI_SP, RI_GP, RI_TP,
-    RI_T0, RI_T1, RI_T2,
-    RI_S0, RI_S1,
-    RI_A0, RI_A1, RI_A2, RI_A3, RI_A4, RI_A5, RI_A6, RI_A7,
-    RI_S2, RI_S3, RI_S4, RI_S5, RI_S6, RI_S7, RI_S8, RI_S9, RI_S10, RI_S11,
-    RI_T3, RI_T4, RI_T5, RI_T6,
-    num_regs,
-} RegIndex;
+    FFLAGS = 0x001,
+    FRM    = 0x002,
+    FCSR   = 0x003,
+} CSR;
 
 void inst_decode(Inst *instp, u32 data);
 InstDef inst_lookup(u32 data);

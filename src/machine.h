@@ -11,5 +11,6 @@ typedef struct {
 
 void machine_load_program(Machine *mp, const char *prog);
 BreakCode machine_step(Machine *mp);
+void machine_setup(Machine *mp, int argc, char **argv);
 
 #endif // MACHINE_H

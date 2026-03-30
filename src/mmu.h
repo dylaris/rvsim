@@ -33,6 +33,7 @@
 #include "utils.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #define GUEST_MEMORY_OFFSET 0x088800000000ULL
 #define TO_HOST(addr)  ((HostVAddr)  (addr + GUEST_MEMORY_OFFSET))
@@ -43,8 +44,16 @@ typedef u64 GuestVAddr;
 
 typedef struct {
     GuestVAddr entry;
+    HostVAddr host_alloc;
+    GuestVAddr alloc;
+    GuestVAddr base;
 } MMU;
 
 void mmu_load_elf(MMU *mmup, FILE *fp);
+GuestVAddr mmu_alloc(MMU *mmup, i64 size);
+static inline void mmu_write(GuestVAddr addr, u8 *data, u64 len)
+{
+    memcpy((void *) TO_HOST(addr), (void *) data, len);
+}
 
 #endif // MMU_H

@@ -1,4 +1,6 @@
 playground/fib
+playground/hello
+playground/prime
 rvemu
 librvemu.so
 tags

@@ -1,5 +1,5 @@
+#include "interpreter.h"
 #include "decoder.h"
-#include "cpu.h"
 #include "mmu.h"
 
 #include <stdlib.h>
@@ -7,23 +7,33 @@
 
 static inline u64 _mulhu(u64 a, u64 b)
 {
-    (void) a;
-    (void) b;
-    return 0;
+    uint64_t t;
+    uint32_t y1, y2, y3;
+    uint64_t a0 = (uint32_t)a, a1 = a >> 32;
+    uint64_t b0 = (uint32_t)b, b1 = b >> 32;
+    t = a1*b0 + ((a0*b0) >> 32);
+    y1 = t;
+    y2 = t >> 32;
+    t = a0*b1 + y1;
+    y1 = t;
+    t = a1*b1 + y2 + (t >> 32);
+    y2 = t;
+    y3 = t >> 32;
+    return ((uint64_t)y3 << 32) | y2;
 }
 
 static inline i64 _mulh(i64 a, i64 b)
 {
-    (void) a;
-    (void) b;
-    return 0;
+    int negate = (a < 0) != (b < 0);
+    uint64_t res = _mulhu(a < 0 ? -a : a, b < 0 ? -b : b);
+    return negate ? ~res + (a * b == 0) : res;
 }
 
 static inline i64 _mulhsu(i64 a, i64 b)
 {
-    (void) a;
-    (void) b;
-    return 0;
+    int negate = a < 0;
+    uint64_t res = _mulhu(a < 0 ? -a : a, b);
+    return negate ? ~res + (a * b == 0) : res;
 }
 
 static inline i64 _div(i64 a, i64 b)
@@ -46,21 +56,109 @@ static inline i64 _rem(i64 a, i64 b)
         return a % b;
 }
 
+#define F32_SIGN ((uint32_t)1 << 31)
+#define F64_SIGN ((uint64_t)1 << 63)
+
+static inline u32 _fsgnj32(u32 a, u32 b, bool n, bool x)
+{
+    u32 v = x ? a : n ? F32_SIGN : 0;
+    return (a & ~F32_SIGN) | ((v ^ b) & F32_SIGN);
+}
+
+static inline u64 _fsgnj64(u64 a, u64 b, bool n, bool x)
+{
+    u64 v = x ? a : n ? F64_SIGN : 0;
+    return (a & ~F64_SIGN) | ((v ^ b) & F64_SIGN);
+}
+
 static inline u64 _fsgnj(u64 a, u64 b, u64 size, bool neg, bool xor)
 {
-    (void) a;
-    (void) b;
-    (void) size;
-    (void) neg;
-    (void) xor;
-    return 0;
+    if (size == 8)
+        return _fsgnj64(a, b, neg, xor);
+    else if (size == 4)
+        return _fsgnj32(a, b, neg, xor);
+    else
+        fatal("size must be 4 or 8");
+}
+
+union u32_f32 { u32 ui; f32 f; };
+#define signF32UI(a) ((bool) ((uint32_t) (a)>>31))
+#define expF32UI(a) ((int_fast16_t) ((a)>>23) & 0xFF)
+#define fracF32UI(a) ((a) & 0x007FFFFF)
+#define isNaNF32UI(a) (((~(a) & 0x7F800000) == 0) && ((a) & 0x007FFFFF))
+#define isSigNaNF32UI(uiA) ((((uiA) & 0x7FC00000) == 0x7F800000) && ((uiA) & 0x003FFFFF))
+
+static inline u16 _f32_classify(f32 a)
+{
+    union u32_f32 uA;
+    u32 uiA;
+
+    uA.f = a;
+    uiA = uA.ui;
+
+    u16 infOrNaN = expF32UI(uiA) == 0xFF;
+    u16 subnormalOrZero = expF32UI(uiA) == 0;
+    bool sign = signF32UI(uiA);
+    bool fracZero = fracF32UI(uiA) == 0;
+    bool isNaN = isNaNF32UI(uiA);
+    bool isSNaN = isSigNaNF32UI(uiA);
+
+    return
+        (sign && infOrNaN && fracZero)          << 0 |
+        (sign && !infOrNaN && !subnormalOrZero) << 1 |
+        (sign && subnormalOrZero && !fracZero)  << 2 |
+        (sign && subnormalOrZero && fracZero)   << 3 |
+        (!sign && infOrNaN && fracZero)          << 7 |
+        (!sign && !infOrNaN && !subnormalOrZero) << 6 |
+        (!sign && subnormalOrZero && !fracZero)  << 5 |
+        (!sign && subnormalOrZero && fracZero)   << 4 |
+        (isNaN &&  isSNaN)                       << 8 |
+        (isNaN && !isSNaN)                       << 9;
+}
+
+union u64_f64 { u64 ui; f64 f; };
+#define signF64UI(a) ((bool) ((uint64_t) (a)>>63))
+#define expF64UI(a) ((int_fast16_t) ((a)>>52) & 0x7FF)
+#define fracF64UI(a) ((a) & UINT64_C(0x000FFFFFFFFFFFFF))
+#define isNaNF64UI(a) (((~(a) & UINT64_C(0x7FF0000000000000)) == 0) && ((a) & UINT64_C(0x000FFFFFFFFFFFFF)))
+#define isSigNaNF64UI(uiA) ((((uiA) & UINT64_C(0x7FF8000000000000)) == UINT64_C(0x7FF0000000000000)) && ((uiA) & UINT64_C(0x0007FFFFFFFFFFFF)))
+
+static inline u16 _f64_classify(f64 a)
+{
+    union u64_f64 uA;
+    u64 uiA;
+
+    uA.f = a;
+    uiA = uA.ui;
+
+    u16 infOrNaN = expF64UI(uiA) == 0x7FF;
+    u16 subnormalOrZero = expF64UI(uiA) == 0;
+    bool sign = signF64UI(uiA);
+    bool fracZero = fracF64UI(uiA) == 0;
+    bool isNaN = isNaNF64UI(uiA);
+    bool isSNaN = isSigNaNF64UI(uiA);
+
+    return
+        (sign && infOrNaN && fracZero)          << 0 |
+        (sign && !infOrNaN && !subnormalOrZero) << 1 |
+        (sign && subnormalOrZero && !fracZero)  << 2 |
+        (sign && subnormalOrZero && fracZero)   << 3 |
+        (!sign && infOrNaN && fracZero)          << 7 |
+        (!sign && !infOrNaN && !subnormalOrZero) << 6 |
+        (!sign && subnormalOrZero && !fracZero)  << 5 |
+        (!sign && subnormalOrZero && fracZero)   << 4 |
+        (isNaN &&  isSNaN)                       << 8 |
+        (isNaN && !isSNaN)                       << 9;
 }
 
 static inline u16 _f_classify(f64 a, u64 size)
 {
-    (void) a;
-    (void) size;
-    return 0;
+    if (size == 8)
+        return _f64_classify(a);
+    else if (size == 4)
+        return _f32_classify(a);
+    else
+        fatal("size must be 4 or 8");
 }
 
 #define GEN(name, tag, a1, a2, a3, a4) GEN_##tag(name, a1, a2, a3, a4)
@@ -97,10 +195,11 @@ static void func_##name(CPU *cpup, Inst *instp) \
 #define GEN_STORE(name, type, a2, a3, a4) \
 static void func_##name(CPU *cpup, Inst *instp) \
 { \
-    GuestVAddr src  = cpup->gp_regs[instp->rs2]; \
-    GuestVAddr dest = cpup->gp_regs[instp->rs1] + (i64) instp->imm; \
-    *(type *) TO_HOST(dest) = (type) src; \
+    u64 val  = cpup->gp_regs[instp->rs2]; \
+    GuestVAddr addr = cpup->gp_regs[instp->rs1] + (i64) instp->imm; \
+    *(type *) TO_HOST(addr) = (type) val; \
 }
+    // printf("\nkind: %d\nga: 0x%016lx\nha: 0x%016lx\nrs1:%d\nrs2:%d\n", instp->kind, addr, TO_HOST(addr), instp->rs1, instp->rs2);
 
 #define GEN_OP_REG(name, expr, a2, a3, a4) \
 static void func_##name(CPU *cpup, Inst *instp) \
@@ -135,18 +234,19 @@ static void func_##name(CPU *cpup, Inst *instp) \
     u64 rs1 = cpup->gp_regs[instp->rs1]; \
     i64 imm = (i64) instp->imm; \
     u64 pc = cpup->pc; \
+    instp->brk = true; \
     cpup->gp_regs[instp->rd] = pc + (instp->rvc ? 2 : 4); \
     cpup->reenter_pc = (addr); \
     cpup->brkcode = JUMP; \
-    (void) rs1; \
 }
 
 #define GEN_ECALL(name, a1, a2, a3, a4) \
 static void func_##name(CPU *cpup, Inst *instp) \
 { \
-    (void) instp; \
+    instp->brk = true; \
     cpup->reenter_pc = cpup->pc + 4; \
     cpup->brkcode = ECALL; \
+    fatal("unsupported ecall for now"); \
 }
 
 #define GEN_CSR(name, a1, a2, a3, a4) \
@@ -250,6 +350,17 @@ typedef void (Func)(CPU *, Inst *);
 static Func *funcs[] = { INSTRUCTIONS(GEN) };
 #undef GEN // Generate dispatch table
 
+static const char *kind_to_string(InstKind kind)
+{
+#define TO_STRING(name, a0, a1, a2, a3, a4) case IK_##name: return #name;
+    switch (kind) {
+    INSTRUCTIONS(TO_STRING)
+    default:
+        unreachable();
+    }
+#undef TO_STRING
+}
+
 void exec_block_interp(CPU *cpup)
 {
     Inst inst = {0};
@@ -259,6 +370,7 @@ void exec_block_interp(CPU *cpup)
 
         // Decode
         inst_decode(&inst, data);
+        // printf("%s\n", kind_to_string(inst.kind));
 
         // Execute
         funcs[inst.kind](cpup, &inst);

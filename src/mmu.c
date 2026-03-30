@@ -6,12 +6,11 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/mman.h>
 
 static void mmu__load_segment(MMU *mmup, ProgHeader *phdrp, int fd)
 {
-    (void) mmup;
-
     u64       pagesz = (u64) getpagesize();
     u64       offset = phdrp->offset;
     HostVAddr vaddr  = TO_HOST(phdrp->vaddr);
@@ -41,6 +40,8 @@ static void mmu__load_segment(MMU *mmup, ProgHeader *phdrp, int fd)
             -1, 0);
         assert(mmap_vaddr == aligned_vaddr + ROUNDUP(filesz, pagesz));
     }
+    mmup->host_alloc = MAX(mmup->host_alloc, aligned_vaddr + ROUNDUP(memsz, pagesz));
+    mmup->base = mmup->alloc = TO_GUEST(mmup->host_alloc);
 }
 
 void mmu_load_elf(MMU *mmup, FILE *fp)
@@ -75,4 +76,30 @@ void mmu_load_elf(MMU *mmup, FILE *fp)
         if (phdr.type == PT_LOAD)
             mmu__load_segment(mmup, &phdr, fileno(fp));
     }
+}
+
+GuestVAddr mmu_alloc(MMU *mmup, i64 size)
+{
+    u64 pagesz = (u64) getpagesize();
+    GuestVAddr base = mmup->alloc;
+    assert(base >= mmup->base);
+
+    mmup->alloc += size;
+    if (size > 0) {
+        if (mmup->alloc > TO_GUEST(mmup->host_alloc)) {
+            if (mmap((void *) mmup->host_alloc, ROUNDUP(size, pagesz),
+                     PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0) == MAP_FAILED)
+                fatal("mmap failed");
+            mmup->host_alloc += ROUNDUP(size, pagesz);
+        }
+    } else if (size < 0) {
+        if (ROUNDUP(mmup->alloc, pagesz) < TO_GUEST(mmup->host_alloc)) {
+            u64 len = TO_GUEST(mmup->host_alloc) - ROUNDUP(mmup->alloc, pagesz);
+            if (munmap((void *) mmup->host_alloc, len) == -1)
+                fatal(strerror(errno));
+            mmup->host_alloc -= len;
+        }
+    }
+
+    return base;
 }

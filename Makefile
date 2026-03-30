@@ -1,5 +1,5 @@
 CC 	     = clang
-CFLAGS   = -ggdb -Wall -Wextra -O3 -Isrc/
+CFLAGS   = -ggdb -Wall -Wextra -Wno-unused-variable -O3 -Isrc/ -ggdb
 CLDFLAGS = -lm
 
 EXE_CFLAGS  = $(CFLAGS)

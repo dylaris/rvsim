@@ -27,6 +27,7 @@ class InstDef(ctypes.Structure):
         ("funct3", ctypes.c_uint16),
         ("funct5high", ctypes.c_uint16),
         ("funct5low", ctypes.c_uint16),
+        ("funct6", ctypes.c_uint16),
         ("funct7", ctypes.c_uint16),
         ("funct12", ctypes.c_uint16),
 
@@ -113,6 +114,12 @@ def compare(index, annos, inst, inst_def):
         act = inst_def.funct5low
         if act != exp:
             details["funct5low"] = f"{exp} vs {act}"
+            details["err"] = True
+    if "funct6" in ident:
+        exp = parse_int(ident["funct6"])
+        act = inst_def.funct6
+        if act != exp:
+            details["funct6"] = f"{exp} vs {act}"
             details["err"] = True
     if "funct7" in ident:
         exp = parse_int(ident["funct7"])

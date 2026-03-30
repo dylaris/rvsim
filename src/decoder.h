@@ -72,8 +72,8 @@
     X(bge,  BRANCH, (i64)rs1 >= (i64)rs2, _, _, _) \
     X(bltu, BRANCH, (u64)rs1 <  (u64)rs2, _, _, _) \
     X(bgeu, BRANCH, (u64)rs1 >= (u64)rs2, _, _, _) \
-    X(jalr, JUMP, (rs1 + (i64)imm) & ~1ULL, _, _, _) \
-    X(jal,  JUMP, pc + (i64)imm,            _, _, _) \
+    X(jalr, JUMP, (rs1 + (i64)imm) & ~(u64)1, _, _, _) \
+    X(jal,  JUMP, pc + (i64)imm,              _, _, _) \
     X(csrrc,  CSR, _, _, _, _) \
     X(csrrci, CSR, _, _, _, _) \
     X(csrrs,  CSR, _, _, _, _) \
@@ -141,7 +141,7 @@
     X(flt_d, FP_CMP, d, f64, rs1 <  rs2, _) \
     X(fle_d, FP_CMP, d, f64, rs1 <= rs2, _) \
     X(fclass_s, FP_CLASS, s, f32, _, _) \
-    X(fclass_d, FP_CLASS, d, f64, _, _) \
+    X(fclass_d, FP_CLASS, d, f64, _, _)
 
     // X(lr_w, EMPTY, 0) \
     // X(sc_w, EMPTY, 0) \
@@ -191,6 +191,7 @@ struct InstDef {
     u16 funct3;      // [14:12]
     u16 funct5high;  // [31:27]
     u16 funct5low;   // [24:20]
+    u16 funct6;      // [31:26]
     u16 funct7;      // [31:25]
     u16 funct12;     // [31:20]
 

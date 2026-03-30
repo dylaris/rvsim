@@ -1,7 +1,7 @@
 .option norvc
 .option nopic
 
-# @ident: name=slli, opcode=0b0010011, funct3=0x1, funct7=0x00
+# @ident: name=slli, opcode=0b0010011, funct3=0x1, funct6=0x00
 
 # @expect: rd=1, rs1=2, imm=0
 slli x1, x2, 0

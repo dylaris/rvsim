@@ -1,5 +1,8 @@
 #include "syscall.h"
 
+#include <stdlib.h>
+#include <sys/stat.h>
+
 const char *syscall_to_string(SyscallNr n)
 {
 #define X(name, number) case SYS_##name: return #name;
@@ -13,24 +16,63 @@ const char *syscall_to_string(SyscallNr n)
 
 typedef u64 (*SyscallFunc)(Machine *);
 
-static u64 sys_exit(Machine *mp) { (void) mp; fatal("unimplemented sys_exit"); }
+static u64 sys_exit(Machine *mp)
+{
+    u64 code = mp->cpu.gp_regs[RI_A0];
+    exit(code);
+}
+
 static u64 sys_exit_group(Machine *mp) { (void) mp; fatal("unimplemented sys_exit_group"); }
 static u64 sys_getpid(Machine *mp) { (void) mp; fatal("unimplemented sys_getpid"); }
 static u64 sys_kill(Machine *mp) { (void) mp; fatal("unimplemented sys_kill"); }
 static u64 sys_tgkill(Machine *mp) { (void) mp; fatal("unimplemented sys_tgkill"); }
 static u64 sys_read(Machine *mp) { (void) mp; fatal("unimplemented sys_read"); }
-static u64 sys_write(Machine *mp) { (void) mp; fatal("unimplemented sys_write"); }
+
+static u64 sys_write(Machine *mp)
+{
+    u64 fd = mp->cpu.gp_regs[RI_A0];
+    GuestVAddr buf = mp->cpu.gp_regs[RI_A1];
+    u64 len = mp->cpu.gp_regs[RI_A2];
+    return write(fd, (void *) TO_HOST(buf), len);
+}
+
 static u64 sys_openat(Machine *mp) { (void) mp; fatal("unimplemented sys_openat"); }
-static u64 sys_close(Machine *mp) { (void) mp; fatal("unimplemented sys_close"); }
+
+static u64 sys_close(Machine *mp)
+{
+    u64 fd = mp->cpu.gp_regs[RI_A0];
+    if (fd > 2)
+        return close(fd);
+    return 0;
+}
+
 static u64 sys_lseek(Machine *mp) { (void) mp; fatal("unimplemented sys_lseek"); }
-static u64 sys_brk(Machine *mp) { (void) mp; fatal("unimplemented sys_brk"); }
+
+static u64 sys_brk(Machine *mp)
+{
+    GuestVAddr addr = mp->cpu.gp_regs[RI_A0];
+    if (addr == 0)
+        addr = mp->mmu.alloc;
+    assert(addr >= mp->mmu.base);
+    i64 increment = (i64) addr - mp->mmu.alloc;
+    mmu_alloc(&mp->mmu, increment);
+    return addr;
+}
+
 static u64 sys_linkat(Machine *mp) { (void) mp; fatal("unimplemented sys_linkat"); }
 static u64 sys_unlinkat(Machine *mp) { (void) mp; fatal("unimplemented sys_unlinkat"); }
 static u64 sys_mkdirat(Machine *mp) { (void) mp; fatal("unimplemented sys_mkdirat"); }
 static u64 sys_renameat(Machine *mp) { (void) mp; fatal("unimplemented sys_renameat"); }
 static u64 sys_chdir(Machine *mp) { (void) mp; fatal("unimplemented sys_chdir"); }
 static u64 sys_getcwd(Machine *mp) { (void) mp; fatal("unimplemented sys_getcwd"); }
-static u64 sys_fstat(Machine *mp) { (void) mp; fatal("unimplemented sys_fstat"); }
+
+static u64 sys_fstat(Machine *mp)
+{
+    u64 fd = mp->cpu.gp_regs[RI_A0];
+    GuestVAddr addr = mp->cpu.gp_regs[RI_A1];
+    return fstat(fd, (struct stat *) TO_HOST(addr));
+}
+
 static u64 sys_fstatat(Machine *mp) { (void) mp; fatal("unimplemented sys_fstatat"); }
 static u64 sys_faccessat(Machine *mp) { (void) mp; fatal("unimplemented sys_faccessat"); }
 static u64 sys_pread(Machine *mp) { (void) mp; fatal("unimplemented sys_pread"); }

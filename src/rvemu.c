@@ -13,8 +13,10 @@ int main(int argc, char **argv)
     machine_load_program(&machine, argv[1]);
     machine_setup(&machine, argc, argv);
 
+#if 0
     printf("entry address:   0x%016lx\n", TO_HOST(machine.mmu.entry));
     printf("machine address: 0x%016lx\n", (HostVAddr) &machine);
+#endif
 
     while (1) {
         BreakCode brkcode = machine_step(&machine);

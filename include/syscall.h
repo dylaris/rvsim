@@ -3,7 +3,7 @@
 
 #include "machine.h"
 
-#define SYSCALLS(X)          \
+#define SYSCALL_LIST(X)      \
     X(exit,            93)   \
     X(exit_group,      94)   \
     X(getpid,          172)  \
@@ -72,11 +72,11 @@
 
 #define X(name, number) SYS_##name = number,
 typedef enum {
-    SYSCALLS(X)
+    SYSCALL_LIST(X)
 } SyscallNr;
 #undef X
 
 const char *syscall_to_string(SyscallNr n);
-u64 do_syscall(Machine *mp, SyscallNr n);
+u64 do_syscall(Machine *machine, SyscallNr n);
 
 #endif // SYSCALL_H

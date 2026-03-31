@@ -1,13 +1,9 @@
-#ifndef DECODER_H
-#define DECODER_H
+#ifndef DECODE_H
+#define DECODE_H
 
-#include "utils.h"
+#include "common.h"
 
-#include <stdbool.h>
-
-#define _
-
-#define INSTRUCTIONS(X) \
+#define INSTRUCTION_LIST(X) \
     X(lb,  LOAD, i8,  _, _, _) \
     X(lh,  LOAD, i16, _, _, _) \
     X(lw,  LOAD, i32, _, _, _) \
@@ -47,12 +43,12 @@
     X(or,     OP_REG, rs1 | rs2,                                                            _, _, _) \
     X(and,    OP_REG, rs1 & rs2,                                                            _, _, _) \
     X(mul,    OP_REG, rs1 * rs2,                                                            _, _, _) \
-    X(mulh,   OP_REG, _mulh(rs1, rs2),                                                      _, _, _) \
-    X(mulhsu, OP_REG, _mulhsu(rs1, rs2),                                                    _, _, _) \
-    X(mulhu,  OP_REG, _mulhu(rs1, rs2),                                                     _, _, _) \
-    X(div,    OP_REG, _div(rs1, rs2),                                                       _, _, _) \
+    X(mulh,   OP_REG, help_mulh(rs1, rs2),                                                  _, _, _) \
+    X(mulhsu, OP_REG, help_mulhsu(rs1, rs2),                                                _, _, _) \
+    X(mulhu,  OP_REG, help_mulhu(rs1, rs2),                                                 _, _, _) \
+    X(div,    OP_REG, help_div(rs1, rs2),                                                   _, _, _) \
     X(divu,   OP_REG, rs2 == 0 ? UINT64_MAX : rs1 / rs2,                                    _, _, _) \
-    X(rem,    OP_REG, _rem(rs1, rs2),                                                       _, _, _) \
+    X(rem,    OP_REG, help_rem(rs1, rs2),                                                   _, _, _) \
     X(remu,   OP_REG, rs2 == 0 ? rs1 : rs1 % rs2,                                           _, _, _) \
     X(sub,    OP_REG, rs1 - rs2,                                                            _, _, _) \
     X(sra,    OP_REG, (i64)rs1 >> (rs2 & 0x3f),                                             _, _, _) \
@@ -166,25 +162,28 @@
     // X(amomaxu_d, EMPTY, 0) \
     // X(amominu_d, EMPTY,)
 
-#define GEN(name, tag, a1, a2, a3, a4) IK_##name,
-typedef enum { INSTRUCTIONS(GEN) num_insts, } InstKind;
-#undef GEN // Generate instruction kind
+#define X(name, tag, a1, a2, a3, a4) INSTR_##name,
+typedef enum { INSTRUCTION_LIST(X) NUM_INSTRS, } InstrKind;
+#undef X
 
+// Dynamic runtime instruction
 typedef struct {
     i8 rd;
     i8 rs1;
     i8 rs2;
     i8 rs3;
     i32 imm;
-    InstKind kind;
-    bool rvc;   // Is RISCV compression extension?
-    bool brk;   // Break out of current block (control flow changed)
-} Inst;
+    InstrKind kind;
+    bool rvc;        // Is RISCV compression extension?
+    bool exit_block; // Exit current block (control flow changed)
+} Instr;
 
-typedef struct InstDef InstDef;
-struct InstDef {
+// Static instruction metadata
+typedef struct InstrInfo InstrInfo;
+struct InstrInfo {
     const char *name;
-    InstKind kind;
+    InstrKind kind;
+    u32 raw;
 
     u16 opcode;      // [6:0]
     u16 funct2;      // [26:25]
@@ -203,16 +202,17 @@ struct InstDef {
     u16 cfunct5high; // [11:7]
     u16 cfunct5low;  // [6:2]
 
-    Inst (*decode)(const InstDef *, u32);
+    Instr (*decode)(const InstrInfo *);
 };
 
 typedef enum {
-    FFLAGS = 0x001,
-    FRM    = 0x002,
-    FCSR   = 0x003,
+    CSR_FFLAGS = 0x001,
+    CSR_FRM    = 0x002,
+    CSR_FCSR   = 0x003,
 } CSR;
 
-void inst_decode(Inst *instp, u32 data);
-InstDef inst_lookup(u32 data);
+bool decode_instr(u32 raw, Instr *out);
+bool decode_instr_info(u32 raw, InstrInfo *out);
+const char *instr_to_string(InstrKind kind);
 
-#endif // DECODER_H
+#endif // DECODE_H

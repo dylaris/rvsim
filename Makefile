@@ -1,5 +1,5 @@
 CC 	     = clang
-CFLAGS   = -ggdb -Wall -Wextra -Wno-unused-variable -O3 -Isrc/ -ggdb
+CFLAGS   = -ggdb -Wall -Wextra -O3 -Iinclude/
 CLDFLAGS = -lm
 
 EXE_CFLAGS  = $(CFLAGS)
@@ -7,7 +7,6 @@ EXE_LDFLAGS = $(CLDFLAGS)
 
 LIB_CFLAGS  = $(CFLAGS) -fPIC
 LIB_LDFLAGS = $(CLDFLAGS) -shared -Wl,--version-script=src/export.sym
-
 
 all: rvemu lib
 

@@ -1,62 +1,100 @@
 #include "machine.h"
-#include "interpreter.h"
+#include "syscall.h"
+#include "trap.h"
 
-#include <errno.h>
-#include <string.h>
-#include <stdlib.h>
-#include <assert.h>
-
-BreakCode machine_step(Machine *mp)
+static void machine__load(Machine *machine, const char *prog)
 {
-    while (1) {
-        mp->cpu.brkcode = NONE;
-        exec_block_interp(&mp->cpu);
-        assert(mp->cpu.brkcode != NONE);
-
-        if (mp->cpu.brkcode == JUMP) {
-            mp->cpu.pc = mp->cpu.reenter_pc;
-            continue;
-        } else
-            break;
-    }
-    mp->cpu.pc = mp->cpu.reenter_pc;
-    assert(mp->cpu.brkcode == ECALL);
-    return ECALL;
-}
-
-void machine_load_program(Machine *mp, const char *prog)
-{
-    FILE *fp = fopen(prog, "rb");
-    if (!fp)
+    FILE *f = fopen(prog, "rb");
+    if (!f)
         fatal(strerror(errno));
 
-    mmu_load_elf(&mp->mmu, fp);
+    mem_load_elf(&machine->mem, f);
 
-    fclose(fp);
+    fclose(f);
 
-    mp->cpu.pc = (u64) mp->mmu.entry;
+    machine->state.pc = (u64) machine->mem.entry;
 }
 
-void machine_setup(Machine *mp, int argc, char **argv)
+static void machine__setup(Machine *machine, int argc, char **argv)
 {
     u64 stack_size = 32 * 1024 * 1024;
-    u64 stack = mmu_alloc(&mp->mmu, stack_size);
-    mp->cpu.gp_regs[RI_SP] = stack + stack_size;
+    GuestVAddr stack_base = mem_alloc(&machine->mem, stack_size);
+    GuestVAddr stack_end  = stack_base + stack_size;
 
-    mp->cpu.gp_regs[RI_SP] -= 8; // auxv
-    mp->cpu.gp_regs[RI_SP] -= 8; // envp
-    mp->cpu.gp_regs[RI_SP] -= 8; // argv end
+    cpu_set_gpr(&machine->state, GPR_SP, stack_end);
 
-    u64 args = argc - 1;
-    for (int i = args; i > 0; i--) {
+    stack_end -= 8; // auxv
+    cpu_set_gpr(&machine->state, GPR_SP, stack_end);
+
+    stack_end -= 8; // envp
+    cpu_set_gpr(&machine->state, GPR_SP, stack_end);
+
+    stack_end -= 8; // argv end
+    cpu_set_gpr(&machine->state, GPR_SP, stack_end);
+
+    for (int i = argc - 1; i >= 0; i--) {
         size_t len = strlen(argv[i]);
-        u64 addr = mmu_alloc(&mp->mmu, len+1);
-        mmu_write(addr, (u8 *)argv[i], len);
-        mp->cpu.gp_regs[RI_SP] -= 8; // argv[i]
-        mmu_write(mp->cpu.gp_regs[RI_SP], (u8 *)&addr, sizeof(u64));
+        GuestVAddr addr = mem_alloc(&machine->mem, len + 1);
+        mem_write(addr, (void *) argv[i], len);
+
+        stack_end -= 8; // argv[i]
+        cpu_set_gpr(&machine->state, GPR_SP, stack_end);
+        mem_write(stack_end, (void *) &addr, sizeof(addr));
     }
 
-    mp->cpu.gp_regs[RI_SP] -= 8; // argc
-    mmu_write(mp->cpu.gp_regs[RI_SP], (u8 *)&args, sizeof(u64));
+    stack_end -= 8; // argc
+    cpu_set_gpr(&machine->state, GPR_SP, stack_end);
+    mem_write(stack_end, (void *) &argc, sizeof(argc));
 }
 
+bool machine_step(Machine *machine)
+{
+    while (1) {
+        cpu_clean_trace(&machine->state);
+
+        if (!interp_block(&machine->state))
+            return false;
+        assert(machine->state.trace.exit_reason != BLOCK_NONE);
+
+        machine->state.pc = machine->state.trace.target_pc;
+
+        // TODO: more exit reason
+        if (machine->state.trace.exit_reason != BLOCK_JUMP)
+            break;
+    }
+    assert(machine->state.trace.exit_reason == BLOCK_ECALL);
+
+    return true;
+}
+
+static u64 machine__syscall(Machine *machine)
+{
+    SyscallNr syscall_nr = (SyscallNr) cpu_get_gpr(&machine->state, GPR_A7);
+    u64 ret = do_syscall(machine, syscall_nr);
+    cpu_set_gpr(&machine->state, GPR_A0, ret);
+    return ret;
+}
+
+bool machine_run(Machine *machine)
+{
+    while (1) {
+        if (!machine_step(machine))
+            return false;
+
+        // TODO: more trap (only syscall for now)
+        machine__syscall(machine);
+    }
+}
+
+void machine_init(Machine *machine, const char *prog, int argc, char **argv)
+{
+    trap_init();
+
+    machine__load(machine, prog);
+    machine__setup(machine, argc-1, argv+1);
+}
+
+void machine_fini(Machine *machine)
+{
+    (void) machine;
+}

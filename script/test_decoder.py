@@ -14,13 +14,14 @@ class Inst(ctypes.Structure):
         ("imm", ctypes.c_int32),
         ("kind", ctypes.c_int),
         ("rvc", ctypes.c_bool),
-        ("brk", ctypes.c_bool),
+        ("exit_block", ctypes.c_bool),
     ]
 
 class InstDef(ctypes.Structure):
     _fields_ = [
         ("name", ctypes.c_char_p),
         ("kind", ctypes.c_int),
+        ("raw", ctypes.c_uint32),
 
         ("opcode", ctypes.c_uint16),
         ("funct2", ctypes.c_uint16),
@@ -268,9 +269,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.all:
-        for filename in os.listdir("playground/asm"):
+        for filename in os.listdir("test/asm"):
             if filename.endswith(".s"):
-                run_test(f"playground/asm/{filename}")
+                run_test(f"test/asm/{filename}")
     elif args.file:
         filepath = args.file
         if not os.path.exists(filepath):

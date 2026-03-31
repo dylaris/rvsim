@@ -1,15 +1,13 @@
 #include "api.h"
 
-#include "decoder.c"
+#include "decode.c"
 
-bool api_decode(u32 data, Inst *outp)
+bool api_decode(u32 raw, Instr *out)
 {
-    inst_decode(outp, data);
-    return true;
+    return decode_instr(raw, out);
 }
 
-bool api_lookup(u32 data, InstDef *outp)
+bool api_lookup(u32 raw, InstrInfo *out)
 {
-    *outp = inst_lookup(data);
-    return true;
+    return decode_instr_info(raw, out);
 }

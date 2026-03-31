@@ -1,9 +1,9 @@
-playground/fib
-playground/hello
-playground/prime
+test/fib
+test/hello
+test/prime
 rvemu
 librvemu.so
 tags
 tmp/
-playground/asm/*.bin
-playground/discard
+test/asm/*.bin
+test/discard

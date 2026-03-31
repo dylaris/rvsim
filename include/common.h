@@ -1,9 +1,11 @@
-#ifndef UTILS_H
-#define UTILS_H
+#ifndef COMMON_H
+#define COMMON_H
 
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <assert.h>
 
 typedef int8_t   i8;
 typedef int16_t  i16;
@@ -27,4 +29,6 @@ typedef double   f64;
 
 #define ARRAY_SIZE(arr) (sizeof(arr)/sizeof(arr[0]))
 
-#endif // UTILS_H
+#define _
+
+#endif // COMMON_H

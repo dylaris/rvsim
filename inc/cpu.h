@@ -16,6 +16,7 @@ typedef enum {
     FLOW_LOAD_FAULT     = TRAP_MASK | 5,
     FLOW_STORE_FAULT    = TRAP_MASK | 6,
     FLOW_CRASH          = TRAP_MASK | 7,
+    FLOW_HALT           = TRAP_MASK | 8,
 } FlowCtrl;
 
 typedef struct {
@@ -29,8 +30,6 @@ typedef struct {
     FPR fp_regs[NUM_FPRS];
     u64 pc;
 } CPUState;
-
-typedef void (*BlockExec)(CPUState *);
 
 static inline void cpu_reset_flow(CPUState *state)
 {
@@ -68,6 +67,12 @@ static inline void cpu_set_pc(CPUState *state, u64 pc)
 static inline u64 cpu_get_pc(CPUState *state)
 {
     return state->pc;
+}
+
+static inline void cpu_inc_pc(CPUState *state, i64 increment)
+{
+    u64 pc = cpu_get_pc(state);
+    cpu_set_pc(state, pc + increment);
 }
 
 static inline void cpu_commit_pc(CPUState *state)

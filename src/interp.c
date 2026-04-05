@@ -201,23 +201,57 @@ typedef void (*InterpFunc)(CPUState *, Instr *);
 static InterpFunc funcs[] = { INSTRUCTION_LIST(X) };
 #undef X // Generate dispatch table
 
-void interp_block(CPUState *state)
+void interp_single(Machine *machine)
+{
+    Instr instr = {0};
+
+    if (machine->single_step)
+        cpu_set_flow_ctl(&machine->state, FLOW_HALT);
+
+    u32 raw = mem_read_u32(cpu_get_pc(&machine->state));
+
+    if (!decode_instr(raw, &instr)) {
+        cpu_set_flow_ctl(&machine->state, FLOW_ILLEGAL_INSTR);
+        return;
+    }
+
+    funcs[instr.kind](&machine->state, &instr);
+
+    machine->skip_breakpoint = false;
+
+    if (instr.cfc)
+        return;
+    else
+        cpu_inc_pc(&machine->state, instr.rvc ? 2 : 4);
+
+}
+
+void interp_block(Machine *machine)
 {
     Instr instr = {0};
 
     while (1) {
-        u32 raw = mem_read_u32(state->pc);
+        u32 pc = cpu_get_pc(&machine->state);
 
-        if (!decode_instr(raw, &instr)) {
-            state->flow.ctl = FLOW_ILLEGAL_INSTR;
+        if (!machine->skip_breakpoint && machine_check_breakpoint(machine, pc)) {
+            cpu_set_flow_ctl(&machine->state, FLOW_HALT);
             return;
         }
 
-        funcs[instr.kind](state, &instr);
+        u32 raw = mem_read_u32(pc);
+
+        if (!decode_instr(raw, &instr)) {
+            cpu_set_flow_ctl(&machine->state, FLOW_ILLEGAL_INSTR);
+            return;
+        }
+
+        funcs[instr.kind](&machine->state, &instr);
+
+        machine->skip_breakpoint = false;
 
         if (instr.cfc)
             break;
         else
-            state->pc += instr.rvc ? 2 : 4;
+            cpu_inc_pc(&machine->state, instr.rvc ? 2 : 4);
     }
 }

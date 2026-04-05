@@ -62,6 +62,8 @@ typedef struct {
         T value; \
     } __Result_##T
 
+#define ALIAS_RESULT(old, new) typedef __Result_##old __Result_##new
+
 #define OK_VOID           ((ResultVoid) { .ok = true                                             })
 #define ERR_VOID(e)       ((ResultVoid) { .ok = false, .err = (e)                                })
 #define SYSERR_VOID(func) ((ResultVoid) { .ok = false, .err = SIM_ERR_NEW(func, strerror(errno)) })
@@ -73,6 +75,7 @@ typedef struct {
 #define return_defer(r) do { res = (r); goto defer; } while (0)
 
 DEFINE_RESULT(int);
-DEFINE_RESULT(GuestVAddr);
+DEFINE_RESULT(u64);
+ALIAS_RESULT(u64, GuestVAddr);
 
 #endif // ERR_H

@@ -1,10 +1,11 @@
 #ifndef INTERP_H
 #define INTERP_H
 
-#include "cpu.h"
+#include "machine.h"
 #include <math.h>
 
-void interp_block(CPUState *state);
+void interp_block(Machine *machine);
+void interp_single(Machine *machine);
 
 static inline u64 help_mulhu(u64 a, u64 b)
 {

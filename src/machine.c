@@ -1,27 +1,62 @@
 #include "machine.h"
 #include "syscall.h"
 
-static void machine__load(Machine *machine, const char *prog)
+ResultVoid machine_load_bin(Machine *machine, const char *prog, GuestVAddr base)
 {
-    FILE *f = fopen(prog, "rb");
+    ResultVoid res = OK_VOID;
+    FILE *f = NULL;
+
+    f = fopen(prog, "rb");
     if (!f)
-        fatal(strerror(errno));
+        return_defer(SYSERR_VOID("fopen"));
 
-#ifdef TEST_TVM
-    mem_load_bin(&machine->mem, f, 0x80000000);
-#else
-    mem_load_elf(&machine->mem, f);
-#endif
+    res = mem_load_bin(&machine->mem, f, base);
+    if (!res.ok)
+        goto defer;
 
-    fclose(f);
+    cpu_set_pc(&machine->state, machine->mem.entry);
 
-    machine->state.pc = (u64) machine->mem.entry;
+defer:
+    if (!f)
+        fclose(f);
+    if (!res.ok)
+        mem_clear(&machine->mem);
+    return res;
 }
 
-static void machine__setup(Machine *machine, int argc, char **argv)
+ResultVoid machine_load_elf(Machine *machine, const char *prog)
 {
-    u64 stack_size = 32 * 1024 * 1024;
-    GuestVAddr stack_base = mem_alloc(&machine->mem, stack_size);
+    ResultVoid res = OK_VOID;
+    FILE *f = NULL;
+
+    f = fopen(prog, "rb");
+    if (!f)
+        return_defer(SYSERR_VOID("fopen"));
+
+    res = mem_load_elf(&machine->mem, f);
+    if (!res.ok)
+        goto defer;
+
+    cpu_set_pc(&machine->state, machine->mem.entry);
+
+defer:
+    if (!f)
+        fclose(f);
+    if (!res.ok)
+        mem_clear(&machine->mem);
+    return res;
+}
+
+ResultVoid machine_init_stack_elf(Machine *machine, u64 stack_size, int argc, char **argv)
+{
+    ResultVoid res = OK_VOID;
+    Result(GuestVAddr) vres = OK(GuestVAddr, 0);
+
+    vres = mem_alloc(&machine->mem, stack_size);
+    if (!vres.ok)
+        return_defer(ERR_VOID(vres.err));
+
+    GuestVAddr stack_base = vres.value;
     GuestVAddr stack_end  = stack_base + stack_size;
 
     cpu_set_gpr(&machine->state, GPR_SP, stack_end);
@@ -37,7 +72,10 @@ static void machine__setup(Machine *machine, int argc, char **argv)
 
     for (int i = argc - 1; i >= 0; i--) {
         size_t len = strlen(argv[i]);
-        GuestVAddr addr = mem_alloc(&machine->mem, len + 1);
+        vres = mem_alloc(&machine->mem, len + 1);
+        if (!vres.ok)
+            return_defer(ERR_VOID(vres.err));
+        GuestVAddr addr = vres.value;
         mem_write(addr, (void *) argv[i], len);
 
         stack_end -= 8; // argv[i]
@@ -48,6 +86,26 @@ static void machine__setup(Machine *machine, int argc, char **argv)
     stack_end -= 8; // argc
     cpu_set_gpr(&machine->state, GPR_SP, stack_end);
     mem_write(stack_end, (void *) &argc, sizeof(argc));
+
+defer:
+    return res;
+}
+
+ResultVoid machine_init_stack_bin(Machine *machine, u64 stack_size)
+{
+    ResultVoid res = OK_VOID;
+    Result(GuestVAddr) vres = OK(GuestVAddr, 0);
+
+    vres = mem_alloc(&machine->mem, stack_size);
+    if (!vres.ok)
+        return_defer(ERR_VOID(vres.err));
+
+    GuestVAddr stack_base = vres.value;
+    GuestVAddr stack_end  = stack_base + stack_size;
+    cpu_set_gpr(&machine->state, GPR_SP, stack_end);
+
+defer:
+    return res;
 }
 
 static void do_syscall(Machine *machine)
@@ -58,34 +116,40 @@ static void do_syscall(Machine *machine)
     cpu_set_gpr(&machine->state, GPR_A0, ret);
 }
 
-static void do_trap(Machine *machine)
+ResultVoid machine_trap(Machine *machine)
 {
+    ResultVoid res = OK_VOID;
+    u64 pc = cpu_get_pc(&machine->state);
+
     switch (machine->state.flow.ctl) {
     case FLOW_ECALL:
         do_syscall(machine);
-        machine->state.pc = machine->state.flow.pc;
+        cpu_commit_pc(&machine->state);
         break;
 
     case FLOW_ILLEGAL_INSTR:
-        fatalf("illegal instruction '0x%08x' @ 0x%016lx", mem_read_u32(machine->state.pc), machine->state.pc);
+        return_defer(ERR_VOID(SIM_ERR_NEWF("machine_trap", "illegal instruction '0x%08x' @ 0x%016lx", mem_read_u32(pc), pc)));
 
     case FLOW_LOAD_FAULT:
     case FLOW_STORE_FAULT:
-        fatalf("memory access fault @ 0x%016lx", machine->state.pc);
+        return_defer(ERR_VOID(SIM_ERR_NEWF("machine_trap", "memory access fault @ 0x%016lx", pc)));
 
     case FLOW_LOAD_MISALIGN:
     case FLOW_STORE_MISALIGN:
-        fatalf("memory align fault @ 0x%016lx", machine->state.pc);
+        return_defer(ERR_VOID(SIM_ERR_NEWF("machine_trap", "memory align fault @ 0x%016lx", pc)));
 
     case FLOW_CRASH:
-        fatalf("this emulator crashed: %s", strerror(errno));
+        return_defer(ERR_VOID(SIM_ERR_NEWF("machine_trap", "this simulator crashed: %s", strerror(errno))));
 
     default:
         unreachable();
     }
+
+defer:
+    return res;
 }
 
-BlockExec machine_dispatch(Machine *machine)
+BlockExec machine_resolve(Machine *machine)
 {
     (void) machine;
     return interp_block;
@@ -97,31 +161,7 @@ void machine_step(Machine *machine, BlockExec func)
     func(&machine->state);
 }
 
-bool machine_run(Machine *machine)
-{
-    while (true) {
-        BlockExec func = machine_dispatch(machine);
-        machine_step(machine, func);
-        if (IS_TRAP(machine->state.flow.ctl))
-            do_trap(machine);
-        else
-            machine->state.pc = machine->state.flow.pc;
-    }
-}
-
-void machine_init(Machine *machine, const char *prog, int argc, char **argv)
-{
-    machine__load(machine, prog);
-#ifdef TEST_TVM
-    (void) argc;
-    (void) argv;
-    cpu_set_gpr(&machine->state, GPR_SP, 0x8010000);
-#else
-    machine__setup(machine, argc-1, argv+1);
-#endif
-}
-
 void machine_fini(Machine *machine)
 {
-    (void) machine;
+    mem_clear(&machine->mem);
 }

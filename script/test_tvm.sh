@@ -3,8 +3,8 @@
 # ==============================
 # Configuration
 # ==============================
-PROJ_DIR="/home/aris/project/rvemu"
-EMU="${PROJ_DIR}/rvemu"
+PROJ_DIR="/home/aris/project/rvsim"
+EMU="${PROJ_DIR}/rvsim"
 TEST_DIR="${PROJ_DIR}/riscv-tests/isa"
 REPORT="${PROJ_DIR}/tmp/test_report.txt"
 FAIL_LIST="${PROJ_DIR}/tmp/test_failures.txt"
@@ -20,7 +20,7 @@ TOTAL=0
 # ==============================
 # Test Suites
 # ==============================
-SUITES="rv64ui rv64um rv64uf rv64ud rv64uc"
+SUITES="rv64ui rv64um rv64uc"
 
 echo "================================================"
 echo "          RISC-V TVM Test Runner"

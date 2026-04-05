@@ -1,5 +1,5 @@
-# rvemu
+# rvsim
 
-Emulator for RISC-V 64 (Only support RV64GC instructions)
+Simulator for RISC-V 64 (Only support RV64IMFDC instructions)
 
 ## Reference

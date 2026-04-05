@@ -2,6 +2,7 @@
 #define MEMORY_H
 
 #include "mmu.h"
+#include "err.h"
 
 #include <string.h>
 
@@ -9,15 +10,17 @@
 // heap_end = TO_GUEST(host_end)
 typedef struct {
     GuestVAddr entry;       // ELF entry point
+    HostVAddr host_begin;   // Host mmaped region begin address
     HostVAddr  host_end;    // Host mapped region end address
     GuestVAddr heap_base;   // Guest heap base address
     GuestVAddr heap_brk;    // Guest heap program break
     GuestVAddr heap_end;    // Guest heap end address
 } Memory;
 
-void mem_load_elf(Memory *mem, FILE *f);
-void mem_load_bin(Memory *mem, FILE *f, GuestVAddr base);
-GuestVAddr mem_alloc(Memory *mem, i64 size);
+ResultVoid mem_load_elf(Memory *mem, FILE *f);
+ResultVoid mem_load_bin(Memory *mem, FILE *f, GuestVAddr base);
+Result(GuestVAddr) mem_alloc(Memory *mem, i64 size);
+void mem_clear(Memory *mem);
 
 static inline void mem_write(GuestVAddr addr, const void *data, u64 len)
 {

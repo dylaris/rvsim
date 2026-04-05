@@ -31,4 +31,10 @@ typedef double   f64;
 
 #define _
 
+#define __used __attribute__((used))
+
+#define KB(n) ((n) * (1ULL << 10))
+#define MB(n) ((n) * (1ULL << 20))
+#define GB(n) ((n) * (1ULL << 30))
+
 #endif // COMMON_H

@@ -40,6 +40,41 @@ static inline void cpu_reset_flow(CPUState *state)
     };
 }
 
+static inline void cpu_set_flow_pc(CPUState *state, u64 pc)
+{
+    state->flow.pc = pc;
+}
+
+static inline u64 cpu_get_flow_pc(CPUState *state)
+{
+    return state->flow.pc;
+}
+
+static inline void cpu_set_flow_ctl(CPUState *state, FlowCtrl ctl)
+{
+    state->flow.ctl = ctl;
+}
+
+static inline FlowCtrl cpu_get_flow_ctl(CPUState *state)
+{
+    return state->flow.ctl;
+}
+
+static inline void cpu_set_pc(CPUState *state, u64 pc)
+{
+    state->pc = pc;
+}
+
+static inline u64 cpu_get_pc(CPUState *state)
+{
+    return state->pc;
+}
+
+static inline void cpu_commit_pc(CPUState *state)
+{
+    cpu_set_pc(state, cpu_get_flow_pc(state));
+}
+
 static inline void cpu_set_gpr(CPUState *state, GPRIndex reg, GPR val)
 {
     assert(reg >= 0 && reg < NUM_GPRS);

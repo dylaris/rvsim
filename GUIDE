@@ -1,0 +1,98 @@
+# test tvm
+
+## Start
+```console
+make test
+```
+
+## compile riscv-tests
+
+```console
+git clone https://github.com/riscv-software-src/riscv-tests.git
+cd riscv-tests
+git submodule update --init --recursive
+autoconf
+./configure --prefix=$PWD/build --with-xlen=64
+make -j$(nproc) XLEN=64 RISCV_PREFIX=$HOME/opt/rv64-unknown-elf/bin/riscv64-unknown-elf-
+```
+
+## test
+```console
+./script/elf2bin.sh
+./script/test_tvm.sh
+```
+
+# run lua5.5.0
+
+## Start
+```console
+make
+```
+
+## compile lua5.5.0
+
+```console
+wget https://www.lua.org/ftp/lua-5.5.0.tar.gz
+tar -xzvf lua-5.5.0.tar.gz
+cd lua-5.5.0
+sh ./build.sh
+```
+
+```sh
+#!/bin/sh
+
+### lua build script
+
+set -xe
+
+RISCV_PREFIX="$HOME/opt/rv64-unknown-elf/bin/riscv64-unknown-elf-"
+INSTALL_TOP="$HOME/opt/lua-5.5.0"
+CC="${RISCV_PREFIX}gcc -std=gnu99"
+AR="${RISCV_PREFIX}ar rcu"
+RANLIB="${RISCV_PREFIX}ranlib"
+MYCFLAGS="-static -march=rv64g -mabi=lp64d"
+MYLDFLAGS="-static"
+
+make clean
+make generic INSTALL_TOP="$INSTALL_TOP" CC="$CC" AR="$AR" RANLIB="$RANLIB" MYCFLAGS="$MYCFLAGS" MYLDFLAGS="$MYLDFLAGS"
+make install INSTALL_TOP="$INSTALL_TOP" CC="$CC" AR="$AR" RANLIB="$RANLIB" MYCFLAGS="$MYCFLAGS" MYLDFLAGS="$MYLDFLAGS"
+```
+
+# run sqlite3
+
+## Start
+```console
+make
+```
+
+## compile sqlite3
+
+```console
+wget https://sqlite.org/2026/sqlite-amalgamation-3510300.zip
+unzip sqlite-amalgamation-3510300.zip
+cd sqlite-amalgamation-3510300
+sh ./build.sh
+```
+
+```sh
+#!/bin/sh
+
+### sqlite3 build script
+
+set -xe
+
+RISCV_PREFIX="$HOME/opt/rv64-unknown-elf/bin/riscv64-unknown-elf-"
+
+"${RISCV_PREFIX}gcc" \
+  -static \
+  -march=rv64g \
+  -mabi=lp64d \
+  -O2 \
+  -DSQLITE_THREADSAFE=0 \
+  -DSQLITE_OMIT_LOAD_EXTENSION \
+  -DSQLITE_OMIT_FLOATING_POINT=0 \
+  -DSQLITE_OS_OTHER=1 \
+  -c sqlite3.c -o sqlite3.o
+
+"${RISCV_PREFIX}ar" rcs libsqlite3.a sqlite3.o
+```

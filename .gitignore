@@ -1,5 +1,5 @@
-rvemu
-librvemu.so
+rvsim
+librvsim.so
 tags
 tmp/
 discard

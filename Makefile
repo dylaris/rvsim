@@ -1,5 +1,5 @@
 CC 	     = clang
-CFLAGS   = -ggdb -Wall -Wextra -O0 -Iinc/ -DTEST_TVM
+CFLAGS   = -ggdb -Wall -Wextra -O3 -Iinc/
 CLDFLAGS = -lm
 
 EXE_CFLAGS  = $(CFLAGS)
@@ -8,16 +8,19 @@ EXE_LDFLAGS = $(CLDFLAGS)
 LIB_CFLAGS  = $(CFLAGS) -fPIC
 LIB_LDFLAGS = $(CLDFLAGS) -shared -Wl,--version-script=src/export.sym
 
-all: rvemu
+all: rvsim
 
-rvemu: src/one.c
-	$(CC) $(EXE_CFLAGS) -o rvemu src/one.c $(EXE_LDFLAGS)
+test: CFLAGS += -DTEST_TVM
+test: rvsim
+
+rvsim: src/one.c
+	$(CC) $(EXE_CFLAGS) -o rvsim src/one.c $(EXE_LDFLAGS)
 
 lib: src/api.c
-	$(CC) $(LIB_CFLAGS) -o librvemu.so src/api.c $(LIB_LDFLAGS)
+	$(CC) $(LIB_CFLAGS) -o librvsim.so src/api.c $(LIB_LDFLAGS)
 
 clean:
-	rm -f rvemu librvemu.so
+	rm -f rvsim librvsim.so
 
 help:
 	@echo "===================================================="
@@ -26,6 +29,7 @@ help:
 	@echo "help:  		Display this information"
 	@echo "clean: 		Clean object files and executable file"
 	@echo "lib: 		Generate shared library"
+	@echo "test: 		Build with TEST_TVM"
 	@echo "===================================================="
 
 .PHONY: all clean help lib

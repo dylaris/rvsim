@@ -2,7 +2,7 @@
 
 cd riscv-tests/isa
 
-RISCV_PREFIX=/home/aris/opt/riscv/bin/riscv64-unknown-elf-
+RISCV_PREFIX=/home/aris/opt/rv64-unknown-elf/bin/riscv64-unknown-elf-
 
 for elf in rv64{ui,um,uf,ud,uc}-p-*; do
     if [[ "$elf" == *.bin ]]; then

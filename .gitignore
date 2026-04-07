@@ -4,4 +4,4 @@ tags
 tmp/
 discard
 riscv-tests/
-hello
+bin/

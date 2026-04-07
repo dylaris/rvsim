@@ -83,7 +83,8 @@ static void interp__##name(CPUState *state, Instr *instr) \
 #define GEN_ECALL(name, a1, a2, a3, a4)
 static void interp__ecall(CPUState *state, Instr *instr)
 {
-#ifdef TEST_TVM
+#ifdef TEST
+    printf("end at pc: 0x%016lx\n", cpu_get_pc(state));
     if (cpu_get_gpr(state, GPR_A7) == SYS_exit) {
         u64 ret = cpu_get_gpr(state, GPR_A0);
         if (ret == 0)
@@ -197,8 +198,8 @@ INSTRUCTION_LIST(GEN)
 #undef GEN // Generate instruction handler
 
 #define X(name, tag, a1, a2, a3, a4) [INSTR_##name] = interp__##name,
-typedef void (*InterpFunc)(CPUState *, Instr *);
-static InterpFunc funcs[] = { INSTRUCTION_LIST(X) };
+typedef void (*InstrFunc)(CPUState *, Instr *);
+static InstrFunc dispatch_table[] = { INSTRUCTION_LIST(X) };
 #undef X // Generate dispatch table
 
 void interp_single(Machine *machine)
@@ -215,43 +216,83 @@ void interp_single(Machine *machine)
         return;
     }
 
-    funcs[instr.kind](&machine->state, &instr);
+    cpu_increase_flow_pc(&machine->state, instr.rvc ? 2 : 4);
 
-    machine->skip_breakpoint = false;
+    InstrFunc func = dispatch_table[instr.kind];
+    func(&machine->state, &instr);
 
-    if (instr.cfc)
-        return;
-    else
-        cpu_inc_pc(&machine->state, instr.rvc ? 2 : 4);
-
+    cpu_commit_pc(&machine->state);
 }
+
+#define EXEC_INSTR(m, i) \
+    if (!(m)->skip_breakpoint && machine_check_breakpoint((m), cpu_get_pc(&(m)->state))) { \
+        cpu_set_flow_ctl(&(m)->state, FLOW_HALT); \
+        break; \
+    } \
+    cpu_increase_flow_pc(&(m)->state, (i)->rvc ? 2 : 4); \
+    InstrFunc func = dispatch_table[(i)->kind]; \
+    func(&(m)->state, (i)); \
+    (m)->skip_breakpoint = false; \
+    cpu_commit_pc(&(m)->state); \
+    if ((i)->cfc) \
+        break;
 
 void interp_block(Machine *machine)
 {
+    u64 pc = cpu_get_pc(&machine->state);
+
+    BasicBlock *block = dbcache_lookup(&machine->dbcache, pc);
+    if (!block && dbcache_hot(&machine->dbcache, pc)) {
+        block = dbcache_add(&machine->dbcache, dbcache_compile(pc));
+        assert(block && "dbcache is full");
+    }
+
+    if (block) {
+        array_foreach(block->instrs, Instr, instr) {
+            EXEC_INSTR(machine, instr)
+        }
+    } else {
+        Instr instr = {0};
+        while (true) {
+            u64 pc = cpu_get_pc(&machine->state);
+            u32 raw = mem_read_u32(pc);
+            if (!decode_instr(raw, &instr)) {
+                cpu_set_flow_ctl(&machine->state, FLOW_ILLEGAL_INSTR);
+                break;
+            }
+            EXEC_INSTR(machine, &instr)
+        }
+    }
+}
+
+void interp_loop(Machine *machine)
+{
     Instr instr = {0};
 
-    while (1) {
-        u32 pc = cpu_get_pc(&machine->state);
-
-        if (!machine->skip_breakpoint && machine_check_breakpoint(machine, pc)) {
-            cpu_set_flow_ctl(&machine->state, FLOW_HALT);
-            return;
-        }
+    while (true) {
+        u64 pc = cpu_get_pc(&machine->state);
 
         u32 raw = mem_read_u32(pc);
 
         if (!decode_instr(raw, &instr)) {
             cpu_set_flow_ctl(&machine->state, FLOW_ILLEGAL_INSTR);
-            return;
+            break;
         }
 
-        funcs[instr.kind](&machine->state, &instr);
+        if (!machine->skip_breakpoint && machine_check_breakpoint(machine, pc)) {
+            cpu_set_flow_ctl(&machine->state, FLOW_HALT);
+            break;
+        }
 
+        cpu_increase_flow_pc(&machine->state, instr.rvc ? 2 : 4);
+
+        InstrFunc func = dispatch_table[instr.kind];
+        func(&machine->state, &instr);
         machine->skip_breakpoint = false;
 
-        if (instr.cfc)
+        cpu_commit_pc(&machine->state);
+
+        if (IS_TRAP(cpu_get_flow_ctl(&machine->state)))
             break;
-        else
-            cpu_inc_pc(&machine->state, instr.rvc ? 2 : 4);
     }
 }

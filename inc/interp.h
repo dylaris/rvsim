@@ -4,8 +4,13 @@
 #include "machine.h"
 #include <math.h>
 
-void interp_block(Machine *machine);
 void interp_single(Machine *machine);
+void interp_block(Machine *machine);
+void interp_loop(Machine *machine);
+
+/*
+ * help functions below
+ */
 
 static inline u64 help_mulhu(u64 a, u64 b)
 {

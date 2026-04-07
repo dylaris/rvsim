@@ -3,21 +3,22 @@
 
 #include "cpu.h"
 #include "memory.h"
-#include "stack.h"
+#include "dbcache.h"
 #include "err.h"
 
+#define DBCACHE_SIZE 4096
+
 typedef struct Machine Machine;
-typedef void (*BlockExec)(Machine *);
 
 struct Machine {
     CPUState state;
     Memory mem;
-
-    BlockExec engine;
+    void (*engine)(Machine *);
+    DBCache dbcache;
 
     bool single_step;
     bool halt;
-    Stack(GuestVAddr) breakpoints;
+    GuestVAddr __Array *breakpoints;
     bool skip_breakpoint;
 };
 

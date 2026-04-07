@@ -30,8 +30,9 @@ typedef double   f64;
 #define ARRAY_SIZE(arr) (sizeof(arr)/sizeof(arr[0]))
 
 #define _
-
-#define __used __attribute__((used))
+#define __Keep          __attribute__((used))
+#define __Unused        __attribute__((unused))
+#define __ForceInline   __attribute__((always_inline))
 
 #define KB(n) ((n) * (1ULL << 10))
 #define MB(n) ((n) * (1ULL << 20))

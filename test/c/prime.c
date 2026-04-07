@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stddef.h>
 
-#define N (1 * 1000 * 1000)
+#define N (1 * 300 * 1000)
 
 int primes[N] = {2};
 size_t primes_count = 1;

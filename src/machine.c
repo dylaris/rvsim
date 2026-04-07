@@ -108,14 +108,6 @@ defer:
     return res;
 }
 
-static void do_syscall(Machine *machine)
-{
-    SyscallNr n = (SyscallNr) cpu_get_gpr(&machine->state, GPR_A7);
-    SyscallFunc f = syscall_get(n);
-    u64 ret = f(machine);
-    cpu_set_gpr(&machine->state, GPR_A0, ret);
-}
-
 ResultVoid machine_trap(Machine *machine)
 {
     ResultVoid res = OK_VOID;
@@ -162,7 +154,11 @@ void machine_resolve(Machine *machine)
     if (machine->single_step)
         machine->engine = interp_single;
     else
+#ifdef DBCACHE
         machine->engine = interp_block;
+#else
+        machine->engine = interp_loop;
+#endif
 }
 
 void machine_step(Machine *machine)
@@ -177,35 +173,39 @@ Machine machine_create(void)
         .state       = (CPUState) {0},
         .mem         = (Memory) {0},
         .engine      = NULL,
+        .dbcache     = dbcache_create(DBCACHE_SIZE),
         .halt        = false,
         .single_step = false,
-        .breakpoints = (Stack(GuestVAddr)) {0},
+        .breakpoints = NULL,
     };
 }
 
 void machine_destroy(Machine *machine)
 {
     mem_clear(&machine->mem);
+    dbcache_destroy(&machine->dbcache);
+    array_free(machine->breakpoints);
 }
 
 void machine_add_breakpoint(Machine *machine, GuestVAddr breakpoint)
 {
-    stack_push(&machine->breakpoints, breakpoint);
+    array_push(machine->breakpoints, breakpoint);
 }
 
 void machine_del_breakpoint(Machine *machine, u64 index)
 {
-    if (machine->breakpoints.len == 0 || index >= machine->breakpoints.len)
+    u64 len = array_len(machine->breakpoints);
+    if (len == 0 || index >= len)
         return;
-    if (index < machine->breakpoints.len - 1)
-        stack_swap(&machine->breakpoints, index, machine->breakpoints.len - 1);
-    stack_pop(&machine->breakpoints);
+    if (index < len - 1)
+        array_swap(machine->breakpoints, index, len - 1);
+    array_pop(machine->breakpoints);
 }
 
 bool machine_check_breakpoint(const Machine *machine, GuestVAddr addr)
 {
-    for (u64 i = 0; i < machine->breakpoints.len; i++) {
-        GuestVAddr breakpoint = machine->breakpoints.items[i];
+    for (u64 i = 0; i < array_len(machine->breakpoints); i++) {
+        GuestVAddr breakpoint = machine->breakpoints[i];
         if (addr == breakpoint)
             return true;
     }
@@ -261,6 +261,39 @@ void machine_repl(Machine *machine)
             return;
 
         case 'r':
+            printf("PC:   0x%016lx\n", cpu_get_pc(&machine->state));
+            printf("ZERO: 0x%016lx\n", cpu_get_gpr(&machine->state, GPR_ZERO));
+            printf("RA:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_RA));
+            printf("SP:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_SP));
+            printf("GP:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_GP));
+            printf("TP:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_TP));
+            printf("T0:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_T0));
+            printf("T1:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_T1));
+            printf("T2:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_T2));
+            printf("S0:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S0));
+            printf("S1:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S1));
+            printf("A0:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_A0));
+            printf("A1:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_A1));
+            printf("A2:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_A2));
+            printf("A3:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_A3));
+            printf("A4:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_A4));
+            printf("A5:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_A5));
+            printf("A6:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_A6));
+            printf("A7:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_A7));
+            printf("S2:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S2));
+            printf("S3:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S3));
+            printf("S4:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S4));
+            printf("S5:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S5));
+            printf("S6:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S6));
+            printf("S7:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S7));
+            printf("S8:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S8));
+            printf("S9:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S9));
+            printf("S10:  0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S10));
+            printf("S11:  0x%016lx\n", cpu_get_gpr(&machine->state, GPR_S11));
+            printf("T3:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_T3));
+            printf("T4:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_T4));
+            printf("T5:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_T5));
+            printf("T6:   0x%016lx\n", cpu_get_gpr(&machine->state, GPR_T6));
             break;
 
         case 'p':

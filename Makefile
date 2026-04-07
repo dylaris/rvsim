@@ -1,5 +1,5 @@
 CC 	     = clang
-CFLAGS   = -ggdb -Wall -Wextra -O3 -Iinc/
+CFLAGS   = -ggdb -Wall -Wextra -O1 -Iinc/
 CLDFLAGS = -lm
 
 EXE_CFLAGS  = $(CFLAGS)
@@ -10,8 +10,14 @@ LIB_LDFLAGS = $(CLDFLAGS) -shared -Wl,--version-script=src/export.sym
 
 all: rvsim
 
-test: CFLAGS += -DTEST_TVM
+test: CFLAGS += -DTEST
 test: rvsim
+
+debug: CFLAGS += -DDEBUG
+debug: rvsim
+
+dbcache: CFLAGS += -DDBCACHE
+dbcache: rvsim
 
 rvsim: src/one.c
 	$(CC) $(EXE_CFLAGS) -o rvsim src/one.c $(EXE_LDFLAGS)
@@ -29,7 +35,9 @@ help:
 	@echo "help:  		Display this information"
 	@echo "clean: 		Clean object files and executable file"
 	@echo "lib: 		Generate shared library"
-	@echo "test: 		Build with TEST_TVM"
+	@echo "test: 		Build with TEST"
+	@echo "debug: 		Build with TEST"
+	@echo "dbcache: 	Build with "
 	@echo "===================================================="
 
 .PHONY: all clean help lib

@@ -10,7 +10,8 @@ typedef enum { INSTRUCTION_LIST(X) NUM_INSTRS, } InstrKind;
 #undef X
 
 // Dynamic runtime instruction
-typedef struct {
+typedef struct Instr Instr;
+struct Instr {
     i8 rd;
     i8 rs1;
     i8 rs2;
@@ -19,7 +20,7 @@ typedef struct {
     InstrKind kind;
     bool rvc; // Is RISCV compression extension?
     bool cfc; // Is control flow changed?
-} Instr;
+};
 
 // Static instruction metadata
 typedef struct InstrInfo InstrInfo;
@@ -55,6 +56,6 @@ typedef enum {
 
 bool decode_instr(u32 raw, Instr *out);
 bool decode_instr_info(u32 raw, InstrInfo *out);
-const char *instr_to_string(InstrKind kind);
+const char *instr_to_string(const Instr *instr);
 
 #endif // DECODE_H

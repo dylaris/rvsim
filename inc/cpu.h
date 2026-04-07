@@ -31,11 +31,21 @@ typedef struct {
     u64 pc;
 } CPUState;
 
+static inline void cpu_set_pc(CPUState *state, u64 pc)
+{
+    state->pc = pc;
+}
+
+static inline u64 cpu_get_pc(CPUState *state)
+{
+    return state->pc;
+}
+
 static inline void cpu_reset_flow(CPUState *state)
 {
     state->flow = (Flow) {
         .ctl = FLOW_NONE,
-        .pc  = 0,
+        .pc  = cpu_get_pc(state),
     };
 }
 
@@ -49,6 +59,12 @@ static inline u64 cpu_get_flow_pc(CPUState *state)
     return state->flow.pc;
 }
 
+static inline void cpu_increase_flow_pc(CPUState *state, u64 increment)
+{
+    u64 pc = cpu_get_flow_pc(state);
+    cpu_set_flow_pc(state, pc + increment);
+}
+
 static inline void cpu_set_flow_ctl(CPUState *state, FlowCtrl ctl)
 {
     state->flow.ctl = ctl;
@@ -59,17 +75,7 @@ static inline FlowCtrl cpu_get_flow_ctl(CPUState *state)
     return state->flow.ctl;
 }
 
-static inline void cpu_set_pc(CPUState *state, u64 pc)
-{
-    state->pc = pc;
-}
-
-static inline u64 cpu_get_pc(CPUState *state)
-{
-    return state->pc;
-}
-
-static inline void cpu_inc_pc(CPUState *state, i64 increment)
+static inline void cpu_increase_pc(CPUState *state, i64 increment)
 {
     u64 pc = cpu_get_pc(state);
     cpu_set_pc(state, pc + increment);

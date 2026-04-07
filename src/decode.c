@@ -669,13 +669,18 @@ bool decode_instr_info(u32 raw, InstrInfo *out)
     return false;
 }
 
-const char *instr_to_string(InstrKind kind)
+const char *instr_to_string(const Instr *instr)
 {
-#define TO_STRING(name, a0, a1, a2, a3, a4) case INSTR_##name: return #name;
-    switch (kind) {
+    static char buf[128];
+#define TO_STRING(name, a0, a1, a2, a3, a4) \
+    case INSTR_##name: \
+        snprintf(buf, sizeof(buf), "%s\t[rd:%d, rs1:%d, rs2:%d, rs3:%d, imm:%d]", #name, instr->rd, instr->rs1, instr->rs2, instr->rs3, instr->imm); \
+        break;
+    switch (instr->kind) {
     INSTRUCTION_LIST(TO_STRING)
     default:
         unreachable();
     }
 #undef TO_STRING
+    return buf;
 }

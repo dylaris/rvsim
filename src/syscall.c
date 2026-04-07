@@ -219,11 +219,14 @@ static SyscallFunc syscall_table[] = {
 };
 #undef X
 
-SyscallFunc syscall_get(SyscallNr n)
+u64 do_syscall(Machine *machine)
 {
+    SyscallNr n = (SyscallNr) cpu_get_gpr(&machine->state, GPR_A7);
     assert(n < ARRAY_SIZE(syscall_table));
-    SyscallFunc func = syscall_table[n];
-    if (!func)
+    SyscallFunc f = syscall_table[n];
+    if (!f)
         fatalf("unknown syscall number: %d", n);
-    return func;
+    u64 ret = f(machine);
+    cpu_set_gpr(&machine->state, GPR_A0, ret);
+    return ret;
 }

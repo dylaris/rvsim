@@ -16,6 +16,6 @@ typedef enum {
 typedef u64 (*SyscallFunc)(Machine *);
 
 const char *syscall_to_string(SyscallNr n);
-SyscallFunc syscall_get(SyscallNr n);
+u64 do_syscall(Machine *machine);
 
 #endif // SYSCALL_H

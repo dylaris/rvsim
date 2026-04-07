@@ -8,8 +8,8 @@ int main(int argc, char **argv)
     ResultVoid res = OK_VOID;
     Machine machine = machine_create();
 
-#ifdef TEST_TVM
-    res = machine_load_bin(&machine, argv[1], 0x80000000);
+#ifdef TEST
+    res = machine_load_bin(&machine, argv[1], 0x80002000);
     if (!res.ok)
         goto defer;
     res = machine_init_stack_bin(&machine, KB(64));
@@ -24,13 +24,11 @@ int main(int argc, char **argv)
         goto defer;
 #endif
 
-#if 1
+#if DEBUG
     printf("entry address:   0x%016lx\n", machine.mem.entry);
     printf("machine address: 0x%016lx\n", (HostVAddr) &machine);
-#endif
 
-#if 1
-    // run debug repl first
+    // Run debug repl first
     machine_add_breakpoint(&machine, machine.mem.entry);
     printf("\n===== RISC-V Simulator REPL =====\n");
 #endif
@@ -40,8 +38,6 @@ int main(int argc, char **argv)
         machine_step(&machine);
         if (IS_TRAP(cpu_get_flow_ctl(&machine.state)))
             machine_trap(&machine);
-        else
-            cpu_commit_pc(&machine.state);
     }
 
 defer:

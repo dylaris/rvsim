@@ -5,13 +5,11 @@
 
 #include "instr_template.h"
 
-#define X(name, tag, a1, a2, a3, a4) INSTR_##name,
+#define X(name, tag, a1, a2, a3, a4) instr_##name,
 typedef enum { INSTRUCTION_LIST(X) NUM_INSTRS, } InstrKind;
 #undef X
 
-// Dynamic runtime instruction
-typedef struct Instr Instr;
-struct Instr {
+typedef struct {
     i8 rd;
     i8 rs1;
     i8 rs2;
@@ -20,7 +18,7 @@ struct Instr {
     InstrKind kind;
     bool rvc; // Is RISCV compression extension?
     bool cfc; // Is control flow changed?
-};
+} Instr;
 
 // Static instruction metadata
 typedef struct InstrInfo InstrInfo;
@@ -47,12 +45,6 @@ struct InstrInfo {
 
     Instr (*decode)(const InstrInfo *, u32);
 };
-
-typedef enum {
-    CSR_FFLAGS = 0x001,
-    CSR_FRM    = 0x002,
-    CSR_FCSR   = 0x003,
-} CSR;
 
 bool decode_instr(u32 raw, Instr *out);
 bool decode_instr_info(u32 raw, InstrInfo *out);

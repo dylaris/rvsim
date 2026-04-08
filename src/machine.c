@@ -154,11 +154,7 @@ void machine_resolve(Machine *machine)
     if (machine->single_step)
         machine->engine = interp_single;
     else
-#ifdef DBCACHE
-        machine->engine = interp_block;
-#else
         machine->engine = interp_loop;
-#endif
 }
 
 void machine_step(Machine *machine)
@@ -173,7 +169,6 @@ Machine machine_create(void)
         .state       = (CPUState) {0},
         .mem         = (Memory) {0},
         .engine      = NULL,
-        .dbcache     = dbcache_create(DBCACHE_SIZE),
         .halt        = false,
         .single_step = false,
         .breakpoints = NULL,
@@ -183,7 +178,6 @@ Machine machine_create(void)
 void machine_destroy(Machine *machine)
 {
     mem_clear(&machine->mem);
-    dbcache_destroy(&machine->dbcache);
     array_free(machine->breakpoints);
 }
 

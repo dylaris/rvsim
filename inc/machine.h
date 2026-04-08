@@ -3,8 +3,8 @@
 
 #include "cpu.h"
 #include "memory.h"
-#include "dbcache.h"
 #include "err.h"
+#include "minicc.h"
 
 #define DBCACHE_SIZE 4096
 
@@ -14,7 +14,6 @@ struct Machine {
     CPUState state;
     Memory mem;
     void (*engine)(Machine *);
-    DBCache dbcache;
 
     bool single_step;
     bool halt;

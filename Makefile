@@ -1,5 +1,5 @@
 CC 	     = clang
-CFLAGS   = -ggdb -Wall -Wextra -O1 -Iinc/
+CFLAGS   = -ggdb -Wall -Wextra -O3 -Iinc/
 CLDFLAGS = -lm
 
 EXE_CFLAGS  = $(CFLAGS)
@@ -15,9 +15,6 @@ test: rvsim
 
 debug: CFLAGS += -DDEBUG
 debug: rvsim
-
-dbcache: CFLAGS += -DDBCACHE
-dbcache: rvsim
 
 rvsim: src/one.c
 	$(CC) $(EXE_CFLAGS) -o rvsim src/one.c $(EXE_LDFLAGS)
@@ -36,8 +33,7 @@ help:
 	@echo "clean: 		Clean object files and executable file"
 	@echo "lib: 		Generate shared library"
 	@echo "test: 		Build with TEST"
-	@echo "debug: 		Build with TEST"
-	@echo "dbcache: 	Build with "
+	@echo "debug: 		Build with DEBUG"
 	@echo "===================================================="
 
 .PHONY: all clean help lib

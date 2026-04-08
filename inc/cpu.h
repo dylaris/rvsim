@@ -31,17 +31,17 @@ typedef struct {
     u64 pc;
 } CPUState;
 
-static inline void cpu_set_pc(CPUState *state, u64 pc)
+static __ForceInline void cpu_set_pc(CPUState *state, u64 pc)
 {
     state->pc = pc;
 }
 
-static inline u64 cpu_get_pc(CPUState *state)
+static __ForceInline u64 cpu_get_pc(CPUState *state)
 {
     return state->pc;
 }
 
-static inline void cpu_reset_flow(CPUState *state)
+static __ForceInline void cpu_reset_flow(CPUState *state)
 {
     state->flow = (Flow) {
         .ctl = FLOW_NONE,
@@ -49,44 +49,44 @@ static inline void cpu_reset_flow(CPUState *state)
     };
 }
 
-static inline void cpu_set_flow_pc(CPUState *state, u64 pc)
+static __ForceInline void cpu_set_flow_pc(CPUState *state, u64 pc)
 {
     state->flow.pc = pc;
 }
 
-static inline u64 cpu_get_flow_pc(CPUState *state)
+static __ForceInline u64 cpu_get_flow_pc(CPUState *state)
 {
     return state->flow.pc;
 }
 
-static inline void cpu_increase_flow_pc(CPUState *state, u64 increment)
+static __ForceInline void cpu_increase_flow_pc(CPUState *state, u64 increment)
 {
     u64 pc = cpu_get_flow_pc(state);
     cpu_set_flow_pc(state, pc + increment);
 }
 
-static inline void cpu_set_flow_ctl(CPUState *state, FlowCtrl ctl)
+static __ForceInline void cpu_set_flow_ctl(CPUState *state, FlowCtrl ctl)
 {
     state->flow.ctl = ctl;
 }
 
-static inline FlowCtrl cpu_get_flow_ctl(CPUState *state)
+static __ForceInline FlowCtrl cpu_get_flow_ctl(CPUState *state)
 {
     return state->flow.ctl;
 }
 
-static inline void cpu_increase_pc(CPUState *state, i64 increment)
+static __ForceInline __Keep void cpu_increase_pc(CPUState *state, i64 increment)
 {
     u64 pc = cpu_get_pc(state);
     cpu_set_pc(state, pc + increment);
 }
 
-static inline void cpu_commit_pc(CPUState *state)
+static __ForceInline void cpu_commit_pc(CPUState *state)
 {
     cpu_set_pc(state, cpu_get_flow_pc(state));
 }
 
-static inline void cpu_set_gpr(CPUState *state, GPRIndex reg, GPR val)
+static __ForceInline void cpu_set_gpr(CPUState *state, GPRIndex reg, GPR val)
 {
     assert(reg >= 0 && reg < NUM_GPRS);
     if (reg == GPR_ZERO)
@@ -94,7 +94,7 @@ static inline void cpu_set_gpr(CPUState *state, GPRIndex reg, GPR val)
     state->gp_regs[reg] = val;
 }
 
-static inline GPR cpu_get_gpr(const CPUState *state, GPRIndex reg)
+static __ForceInline GPR cpu_get_gpr(const CPUState *state, GPRIndex reg)
 {
     assert(reg >= 0 && reg < NUM_GPRS);
     if (reg == GPR_ZERO)
@@ -102,61 +102,61 @@ static inline GPR cpu_get_gpr(const CPUState *state, GPRIndex reg)
     return state->gp_regs[reg];
 }
 
-static inline void cpu_set_fpr(CPUState *state, FPRIndex reg, FPR val)
+static __ForceInline __Keep void cpu_set_fpr(CPUState *state, FPRIndex reg, FPR val)
 {
     assert(reg >= 0 && reg < NUM_FPRS);
     state->fp_regs[reg] = val;
 }
 
-static inline FPR cpu_get_fpr(const CPUState *state, FPRIndex reg)
+static __ForceInline __Keep FPR cpu_get_fpr(const CPUState *state, FPRIndex reg)
 {
     assert(reg >= 0 && reg < NUM_FPRS);
     return state->fp_regs[reg];
 }
 
-static inline void cpu_set_fpr_q(CPUState *state, FPRIndex reg, u64 val)
+static __ForceInline void cpu_set_fpr_q(CPUState *state, FPRIndex reg, u64 val)
 {
     assert(reg >= 0 && reg < NUM_FPRS);
     state->fp_regs[reg].q = val;
 }
 
-static inline u64 cpu_get_fpr_q(const CPUState *state, FPRIndex reg)
+static __ForceInline u64 cpu_get_fpr_q(const CPUState *state, FPRIndex reg)
 {
     assert(reg >= 0 && reg < NUM_FPRS);
     return state->fp_regs[reg].q;
 }
 
-static inline void cpu_set_fpr_w(CPUState *state, FPRIndex reg, u32 val)
+static __ForceInline void cpu_set_fpr_w(CPUState *state, FPRIndex reg, u32 val)
 {
     assert(reg >= 0 && reg < NUM_FPRS);
     state->fp_regs[reg].w = val;
 }
 
-static inline u32 cpu_get_fpr_w(const CPUState *state, FPRIndex reg)
+static __ForceInline u32 cpu_get_fpr_w(const CPUState *state, FPRIndex reg)
 {
     assert(reg >= 0 && reg < NUM_FPRS);
     return state->fp_regs[reg].w;
 }
 
-static inline void cpu_set_fpr_d(CPUState *state, FPRIndex reg, f64 val)
+static __ForceInline void cpu_set_fpr_d(CPUState *state, FPRIndex reg, f64 val)
 {
     assert(reg >= 0 && reg < NUM_FPRS);
     state->fp_regs[reg].d = val;
 }
 
-static inline f64 cpu_get_fpr_d(const CPUState *state, FPRIndex reg)
+static __ForceInline f64 cpu_get_fpr_d(const CPUState *state, FPRIndex reg)
 {
     assert(reg >= 0 && reg < NUM_FPRS);
     return state->fp_regs[reg].d;
 }
 
-static inline void cpu_set_fpr_s(CPUState *state, FPRIndex reg, f32 val)
+static __ForceInline void cpu_set_fpr_s(CPUState *state, FPRIndex reg, f32 val)
 {
     assert(reg >= 0 && reg < NUM_FPRS);
     state->fp_regs[reg].s = val;
 }
 
-static inline f32 cpu_get_fpr_s(const CPUState *state, FPRIndex reg)
+static __ForceInline f32 cpu_get_fpr_s(const CPUState *state, FPRIndex reg)
 {
     assert(reg >= 0 && reg < NUM_FPRS);
     return state->fp_regs[reg].s;

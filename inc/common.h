@@ -32,10 +32,14 @@ typedef double   f64;
 #define _
 #define __Keep          __attribute__((used))
 #define __Unused        __attribute__((unused))
-#define __ForceInline   __attribute__((always_inline))
+// #define __ForceInline   __attribute__((always_inline))
+#define __ForceInline
 
 #define KB(n) ((n) * (1ULL << 10))
 #define MB(n) ((n) * (1ULL << 20))
 #define GB(n) ((n) * (1ULL << 30))
+
+#define likely(x)    __builtin_expect(!!(x), 1)
+#define unlikely(x)  __builtin_expect(!!(x), 0)
 
 #endif // COMMON_H

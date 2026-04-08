@@ -136,6 +136,7 @@ MINICCDEF bool hash_set(Hash *hash, uint64_t key, uint64_t value);
 MINICCDEF uint64_t hash_get(const Hash *hash, uint64_t key, uint64_t invalid_value);
 MINICCDEF void hash_clear(Hash *hash);
 MINICCDEF uint64_t murmurhash64(const void *key, size_t len, uint64_t seed);
+#define hash_factor(h) ((float) (h)->count / (float) (h)->capacity)
 #define hash_full(h) ((h)->count == (h)->capacity)
 #define hash_mem(p, sz) murmurhash64(p, sz, 0)
 #define hash_str(s) murmurhash64(s, strlen(s), 0)

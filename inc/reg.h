@@ -22,7 +22,14 @@ typedef enum {
     NUM_FPRS,
 } FPRIndex;
 
+typedef enum {
+    CSR_FFLAGS = 0x001,
+    CSR_FRM    = 0x002,
+    CSR_FCSR   = 0x003,
+} CSRIndex;
+
 typedef u64 GPR;
+typedef u64 CSR;
 typedef union {
     u64 q;
     f64 d;

@@ -16,12 +16,12 @@ typedef struct {
 #define SIM_ERR_NEW(func, info) sim_err_new(func, info, __FILE__, __LINE__)
 #define SIM_ERR_NEWF(func, fmt, ...) sim_err_newf(func, __FILE__, __LINE__, fmt, __VA_ARGS__)
 
-static inline void sim_err_print(SimErr err)
+static __ForceInline void sim_err_print(SimErr err)
 {
     fprintf(stderr, "%s:%d: %s:%s\n", err.file, err.line, err.func, err.info);
 }
 
-static inline SimErr sim_err_new(const char *func, const char *info, const char *file, int line)
+static __ForceInline SimErr sim_err_new(const char *func, const char *info, const char *file, int line)
 {
     return (SimErr) {
         .func = func,
@@ -31,7 +31,7 @@ static inline SimErr sim_err_new(const char *func, const char *info, const char 
     };
 }
 
-static inline SimErr sim_err_newf(const char *func, const char *file, int line, const char *fmt, ...)
+static __ForceInline SimErr sim_err_newf(const char *func, const char *file, int line, const char *fmt, ...)
 {
     char buf[256];
 

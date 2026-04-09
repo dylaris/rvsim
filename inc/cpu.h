@@ -25,10 +25,10 @@ typedef struct {
 } Flow;
 
 typedef struct {
-    Flow flow;
+    u64 pc;
     GPR gp_regs[NUM_GPRS];
     FPR fp_regs[NUM_FPRS];
-    u64 pc;
+    Flow flow;
 } CPUState;
 
 static __ForceInline void cpu_set_pc(CPUState *state, u64 pc)

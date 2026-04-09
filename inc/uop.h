@@ -6,72 +6,216 @@
 typedef struct {
     u8 *code;
     u64 length;
-    bool patch_imm;
-    bool patch_reg;
     u64 patch_offset;
+    u64 patch_length;
 } UOP;
 
 #define t0 rax
 #define t1 rbx
+#define t2 rcx
 
-#define DEFINE_UOP(name, desc, pimm, preg, poff, ...) \
+#define DEFINE_UOP(name, desc, poff, plen, ...) \
     static u8 uop_##name##_code[] = { __VA_ARGS__ }; \
     static UOP uop_##name[] = { \
         .code = uop_##name##_code, \
         .length = sizeof(uop_##name##_code), \
-        .patch_imm = (pimm), \
-        .patch_reg = (preg), \
         .patch_offset = (poff), \
+        .patch_length = (plen), \
     };
 
-// move
-DEFINE_UOP(move_imm_t0, "t0 = imm", true,  false, 0, 0xff, 0xff)
-DEFINE_UOP(move_imm_t1, "t1 = imm", true,  false, 0, 0xff, 0xff)
-DEFINE_UOP(move_gpr_t0, "t0 = gpr", false, true,  0, 0xff, 0xff)
-DEFINE_UOP(move_gpr_t1, "t1 = gpr", false, true,  0, 0xff, 0xff)
-DEFINE_UOP(move_t0_gpr, "gpr = t0", false, true,  0, 0xff, 0xff)
-DEFINE_UOP(move_t1_gpr, "gpr = t1", false, true,  0, 0xff, 0xff)
-DEFINE_UOP(move_t0_t1,  "t1 = t0", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(move_t1_t0,  "t0 = t1", false, false, 0, 0xff, 0xff)
+///////////////////////////////////
+// data movement
+///////////////////////////////////
 
-// arith
-DEFINE_UOP(add_t0_t1,  "t0 = t0 + t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(sub_t0_t1,  "t0 = t0 - t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(mul_t0_t1,  "t0 = t0 * t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(div_t0_t1,  "t0 = t0 / t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(rem_t0_t1,  "t0 = t0 % t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(sra_t0_t1,  "t0 = t0 >> t1", false, false, 0, 0xff, 0xff)
+// mov rax, imm64
+DEFINE_UOP(move_imm64_t0, "t0 = imm64", 2, 8,\
+           0x48, 0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+// mov rbx, imm64
+DEFINE_UOP(move_imm64_t1, "t1 = imm64", 2, 8, \
+           0x48, 0xBB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+// mov rcx, imm64
+DEFINE_UOP(move_imm64_t2, "t2 = imm64", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+// mov rax, imm32
+DEFINE_UOP(move_imm32_t0, "t0 = imm32", 3, 4, \
+           0x48, 0xC7, 0xC0, 0x00, 0x00, 0x00, 0x00)
+// mov rbx, imm32
+DEFINE_UOP(move_imm32_t1, "t1 = imm32", 3, 4, \
+           0x48, 0xC7, 0xC3, 0x00, 0x00, 0x00, 0x00)
+// mov rcx, imm32
+DEFINE_UOP(move_imm32_t2, "t2 = imm32", 3, 4, \
+           0x48, 0xC7, 0xC1, 0x00, 0x00, 0x00, 0x00)
+// mov rax, [rdi + imm32]
+DEFINE_UOP(move_reg_t0, "t0 = reg", 3, 4, \
+           0x48, 0x8B, 0x87, 0x00, 0x00, 0x00, 0x00)
+// mov rbx, [rdi + imm32]
+DEFINE_UOP(move_reg_t1, "t1 = reg", 3, 4, \
+           0x48, 0x8B, 0x9F, 0x00, 0x00, 0x00, 0x00)
+// mov rcx, [rdi + imm32]
+DEFINE_UOP(move_reg_t2, "t2 = reg", 3, 4, \
+           0x48, 0x8B, 0x8F, 0x00, 0x00, 0x00, 0x00)
+// mov [rdi + imm32], rax
+DEFINE_UOP(move_t0_reg, "reg = t0", 3, 4, \
+           0x48, 0x89, 0x87, 0x00, 0x00, 0x00, 0x00)
+// mov [rdi + imm32], rbx
+DEFINE_UOP(move_t1_reg, "reg = t1", 3, 4, \
+           0x48, 0x89, 0x9F, 0x00, 0x00, 0x00, 0x00)
+// mov [rdi + imm32], rcx
+DEFINE_UOP(move_t2_reg, "reg = t2", 3, 4, \
+           0x48, 0x89, 0x8F, 0x00, 0x00, 0x00, 0x00)
+// mov rax, rbx
+DEFINE_UOP(move_t1_t0,  "t0 = t1", 0, 0, \
+           0x48, 0x89, 0xD8)
+// mov rax, rcx
+DEFINE_UOP(move_t2_t0,  "t0 = t2", 0, 0, \
+           0x48, 0x89, 0xC8)
+// mov rbx, rax
+DEFINE_UOP(move_t0_t1,  "t1 = t0", 0, 0, \
+           0x48, 0x89, 0xC3)
+// mov rcx, rax
+DEFINE_UOP(move_t0_t2,  "t2 = t0", 0, 0, \
+           0x48, 0x89, 0xC1)
+// mov rcx, imm64
+// movsx rax, byte ptr [rbx + rcx]
+DEFINE_UOP(load_s8,  "t0 = [t1 + imm64]", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0xBE, 0x04, 0x0B)
+// mov rcx, imm64
+// movsx rax, word ptr [rbx + rcx]
+DEFINE_UOP(load_s16, "t0 = [t1 + imm64]", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0xB0, 0x04, 0x0B)
+// mov rcx, imm64
+// movsxd rax, dword ptr [rbx + rcx]
+DEFINE_UOP(load_s32, "t0 = [t1 + imm64]", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x63, 0x04, 0x0B)
+// mov rcx, imm64
+// movzx rax, byte ptr [rbx + rcx]
+DEFINE_UOP(load_u8,  "t0 = [t1 + imm64]", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0xB6, 0x04, 0x0B)
+// mov rcx, imm64
+// movzx rax, word ptr [rbx + rcx]
+DEFINE_UOP(load_u16, "t0 = [t1 + imm64]", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00, 0xB7, 0x04, 0x0B)
+// mov rcx, imm64
+// mov eax, [rbx + rcx]
+DEFINE_UOP(load_u32, "t0 = [t1 + imm64]", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8B, 0x04, 0x0B)
+// mov rcx, imm64
+// mov rax, [rbx + rcx]
+DEFINE_UOP(load_u64, "t0 = [t1 + imm64]", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x8B, 0x04, 0x0B)
+// mov rcx, imm64
+// mov byte ptr [rax + rcx], bl
+DEFINE_UOP(store_u8,  "[t0 + imm64] = t1", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x88, 0x1C, 0x08)
+// mov rcx, imm64
+// mov word ptr [rax + rcx], bx
+DEFINE_UOP(store_u16, "[t0 + imm64] = t1", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x66, 0x89, 0x1C, 0x08)
+// mov rcx, imm64
+// mov dword ptr [rax + rcx], ebx
+DEFINE_UOP(store_u32, "[t0 + imm64] = t1", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x89, 0x1C, 0x08)
+// mov rcx, imm64
+// mov qword ptr [rax + rcx], rbx
+DEFINE_UOP(store_u64, "[t0 + imm64] = t1", 2, 8, \
+           0x48, 0xB9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x89, 0x1C, 0x08)
 
-// logic
-DEFINE_UOP(and_t0_t1,  "t0 = t0 & t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(or_t0_t1,   "t0 = t0 | t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(xor_t0_t1,  "t0 = t0 ^ t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(sll_t0_t1,  "t0 = t0 << t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(srl_t0_t1,  "t0 = t0 >> t1", false, false, 0, 0xff, 0xff)
+///////////////////////////////////
+// arith & logic
+///////////////////////////////////
 
+// add rax, rbx
+DEFINE_UOP(add_t0_t1, "t0 = t0 + t1", 0, 0, \
+           0x48, 0x01, 0xD8)
+// sub rax, rbx
+DEFINE_UOP(sub_t0_t1, "t0 = t0 - t1", 0, 0, \
+           0x48, 0x29, 0xD8)
+// and rax, rbx
+DEFINE_UOP(and_t0_t1, "t0 = t0 & t1", 0, 0, \
+           0x48, 0x21, 0xD8)
+// or rax, rbx
+DEFINE_UOP(or_t0_t1,  "t0 = t0 | t1", 0, 0, \
+           0x48, 0x09, 0xD8)
+// xor rax, rbx
+DEFINE_UOP(xor_t0_t1, "t0 = t0 ^ t1", 0, 0, \
+           0x48, 0x31, 0xD8)
+// cdqe (rax = sign_extend(eax))
+DEFINE_UOP(sext_t0, "t0 = sext32(t0)", 0, 0, \
+           0x48, 0x98)
+
+///////////////////////////////////
+// shift
+///////////////////////////////////
+
+// shl rax, cl
+DEFINE_UOP(sll_t0_t2, "t0 = t0 << t2", 0, 0, \
+           0x48, 0xD3, 0xE0)
+// shr rax, cl
+DEFINE_UOP(srl_t0_t2, "t0 = t0 >> t2", 0, 0, \
+           0x48, 0xD3, 0xE8)
+// sar rax, cl
+DEFINE_UOP(sra_t0_t2, "t0 = t0 >> t2", 0, 0, \
+           0x48, 0xD3, 0xF8)
+
+///////////////////////////////////
+// multiply & division
+///////////////////////////////////
+
+///////////////////////////////////
 // compare
-DEFINE_UOP(eq_t0_t1,  "t0 = t0 == t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(ne_t0_t1,  "t0 = t0 != t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(lt_t0_t1,  "t0 = t0 <  t1", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(ge_t0_t1,  "t0 = t0 >= t1", false, false, 0, 0xff, 0xff)
+///////////////////////////////////
 
-// load
-DEFINE_UOP(load_s8_t0,  "t0 = [t0 + off]", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(load_s16_t0, "t0 = [t0 + off]", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(load_s32_t0, "t0 = [t0 + off]", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(load_u8_t0,  "t0 = [t0 + off]", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(load_u16_t0, "t0 = [t0 + off]", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(load_u32_t0, "t0 = [t0 + off]", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(load_u64_t0, "t0 = [t0 + off]", false, false, 0, 0xff, 0xff)
+// cmp rax, rbx
+// setl al
+// movzx rax, al
+DEFINE_UOP(slt_t0_t1, "t0 = (t0 < t1) ? 1 : 0", 0, 0, \
+           0x48, 0x39, 0xD8, 0x0F, 0x9C, 0xC0, 0x48, 0x0F, 0xB6, 0xC0)
+// cmp rax, rbx
+// setb al
+// movzx rax, al
+DEFINE_UOP(sltu_t0_t1, "t0 = (u)t0 < (u)t1", 0, 0, \
+           0x48, 0x39, 0xD8, 0x0F, 0x92, 0xC0, 0x48, 0x0F, 0xB6, 0xC0)
+// cmp rax, rbx
+// sete al
+// movzx rax, al
+DEFINE_UOP(eq_t0_t1, "t0 = t0 == t1", 0, 0, \
+           0x48, 0x39, 0xD8, 0x0F, 0x94, 0xC0, 0x48, 0x0F, 0xB6, 0xC0)
+// cmp rax, rbx
+// setne al
+// movzx rax, al
+DEFINE_UOP(ne_t0_t1, "t0 = t0 != t1", 0, 0, \
+           0x48, 0x39, 0xD8, 0x0F, 0x95, 0xC0, 0x48, 0x0F, 0xB6, 0xC0)
+// cmp rax, rbx
+// setl al
+// movzx rax, al
+DEFINE_UOP(lt_t0_t1, "t0 = t0 < t1", 0, 0, \
+           0x48, 0x39, 0xD8, 0x0F, 0x9C, 0xC0, 0x48, 0x0F, 0xB6, 0xC0)
+// cmp rax, rbx
+// setge al
+// movzx rax, al
+DEFINE_UOP(ge_t0_t1, "t0 = t0 >= t1", 0, 0, \
+           0x48, 0x39, 0xD8, 0x0F, 0x9D, 0xC0, 0x48, 0x0F, 0xB6, 0xC0)
+// cmp rax, rbx
+// setb al
+// movzx rax, al
+DEFINE_UOP(ltu_t0_t1, "t0 = (u)t0 < (u)t1", 0, 0, \
+           0x48, 0x39, 0xD8, 0x0F, 0x92, 0xC0, 0x48, 0x0F, 0xB6, 0xC0)
+// cmp rax, rbx
+// setae al
+// movzx rax, al
+DEFINE_UOP(geu_t0_t1,  "t0 = (u)t0 >= (u)t1", 0, 0, \
+           0x48, 0x39, 0xD8, 0x0F, 0x93, 0xC0, 0x48, 0x0F, 0xB6, 0xC0)
 
-// store
-DEFINE_UOP(store_u8_t0,  "[t0 + off] = t0", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(store_u16_t0, "[t0 + off] = t0", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(store_u32_t0, "[t0 + off] = t0", false, false, 0, 0xff, 0xff)
-DEFINE_UOP(store_u64_t0, "[t0 + off] = t0", false, false, 0, 0xff, 0xff)
-
+///////////////////////////////////
 // branch
+///////////////////////////////////
 
-// jump
+// test al, al
+// jne imm32
+DEFINE_UOP(branch_start, "if (t0) goto end", 4, 4, \
+           0x84, 0xC0, 0x0F, 0x85, 0x00, 0x00, 0x00, 0x00)
+// nop
+DEFINE_UOP(branch_end, "", 0, 0, \
+           0x90)
 
 #endif // UOP_H

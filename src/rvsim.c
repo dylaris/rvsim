@@ -38,6 +38,7 @@ int main(int argc, char **argv)
         machine_step(&machine);
         if (IS_TRAP(cpu_get_flow_ctl(&machine.state)))
             machine_trap(&machine);
+        cpu_commit_pc(&machine.state);
     }
 
 defer:

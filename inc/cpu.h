@@ -17,6 +17,7 @@ typedef enum {
     FLOW_STORE_FAULT    = TRAP_MASK | 6,
     FLOW_CRASH          = TRAP_MASK | 7,
     FLOW_HALT           = TRAP_MASK | 8,
+    FLOW_CACHE_OVERFLOW = TRAP_MASK | 9,
 } FlowCtrl;
 
 typedef struct {
@@ -24,11 +25,19 @@ typedef struct {
     u64 pc;
 } Flow;
 
+/*
+ * Within the interpreter loop:
+ * - The variable 'pc' points to the instruction currently being processed.
+ * - The variable 'flow.pc' is pre-calculated to point to the subsequent instruction.
+ * To maintain correct execution state, the value of 'pc' must be synchronized
+ * with 'flow.pc' at the end of processing the current instruction. (call cpu_commit_pc())
+ */
+
 typedef struct {
-    u64 pc;
     GPR gp_regs[NUM_GPRS];
-    FPR fp_regs[NUM_FPRS];
+    u64 pc;
     Flow flow;
+    FPR fp_regs[NUM_FPRS];
 } CPUState;
 
 static __ForceInline void cpu_set_pc(CPUState *state, u64 pc)
@@ -41,12 +50,9 @@ static __ForceInline u64 cpu_get_pc(CPUState *state)
     return state->pc;
 }
 
-static __ForceInline void cpu_reset_flow(CPUState *state)
+static __ForceInline void cpu_reset_flow_ctl(CPUState *state)
 {
-    state->flow = (Flow) {
-        .ctl = FLOW_NONE,
-        .pc  = cpu_get_pc(state),
-    };
+    state->flow.ctl = FLOW_NONE;
 }
 
 static __ForceInline void cpu_set_flow_pc(CPUState *state, u64 pc)

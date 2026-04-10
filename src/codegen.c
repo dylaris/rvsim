@@ -1,465 +1,470 @@
 #include "codegen.h"
 #include "mmu.h"
+#include "reg.h"
+#include "uop.h"
 
-static __ForceInline void emit_lb(u8 **dst, CPUState *state, Instr *instr)
+typedef u64 (*EmitFunc)(u8 **, CPUState *, Instr *, u64);
+
+#define REG_OFFSET(idx) ((i64) ((char *) state->gp_regs[idx] - (char *) state->gp_regs))
+#define ADDRESS(imm) ((i64) mmu_to_host((i64) (imm)))
+
+// Helper function to write bytes in little-endian order
+static __ForceInline void write_le_bytes(u8 *dst, u64 value, u64 num_bytes)
 {
-    u64 addr = state->gp_regs[instr->rs1] + (i64) instr->imm;
-    state->gp_regs[instr->rd] = *(u8 *) (addr + GUEST_MEMORY_OFFSET);
+    for (u64 i = 0; i < num_bytes; ++i)
+        dst[i] = (value >> (i * 8)) & 0xFF;
 }
 
-static __ForceInline void emit_lh(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline void emit_uop(u8 **dst, UOP *uop, i64 imm)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    memcpy(*dst, uop->code, uop->length);
+    if (uop->patch_length)
+        write_le_bytes(uop->code + uop->patch_offset, (u64) imm, uop->patch_length);
+    *dst += uop->length;
 }
 
-static __ForceInline void emit_lw(u8 **dst, CPUState *state, Instr *instr)
+#define EMPTY \
+    (void) dst; \
+    (void) state; \
+    (void) instr; \
+    (void) pc; \
+    return 0;
+
+#define FUNC(type) \
+    (void) pc; \
+    u8 *start = *dst; \
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs1)); \
+    emit_uop(dst, &uop_load_##type, ADDRESS(instr->imm)); \
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd)); \
+    return (u64) (*dst - start);
+
+
+static __ForceInline u64 emit_lb(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    FUNC(s8)
 }
 
-static __ForceInline void emit_ld(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_lh(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    FUNC(s16)
 }
 
-static __ForceInline void emit_lbu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_lw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    FUNC(s32)
 }
 
-static __ForceInline void emit_lhu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_ld(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    FUNC(u64)
 }
 
-static __ForceInline void emit_lwu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_lbu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    FUNC(u8)
 }
 
-static __ForceInline void emit_fence(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_lhu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    FUNC(u16)
 }
 
-static __ForceInline void emit_fence_i(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_lwu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    FUNC(u32)
 }
 
-static __ForceInline void emit_ebreak(u8 **dst, CPUState *state, Instr *instr)
+#undef FUNC
+
+static __ForceInline u64 emit_fence(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_auipc(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_fence_i(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_lui(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_ebreak(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_ecall(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_auipc(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    u8 *start = *dst;
+    u64 val = pc + (i64) instr->imm;
+    emit_uop(dst, &uop_move_imm64_t0, (i64) val);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_addi(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_lui(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_imm64_t0, (i64) instr->imm);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_slli(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_ecall(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) dst;
-    (void) state;
     (void) instr;
+    cpu_set_flow_ctl(state, FLOW_ECALL);
+    cpu_set_flow_pc(state, pc + 4);
+    return 0;
 }
 
-static __ForceInline void emit_slti(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_addi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm64_t1, (i64) instr->imm);
+    emit_uop(dst, &uop_add_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_sltiu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_slli(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm32_t2, (i64) instr->imm & 0x3f);
+    emit_uop(dst, &uop_sll_t0_t2, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_xori(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_slti(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm64_t1, (i64) instr->imm);
+    emit_uop(dst, &uop_slt_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_srli(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sltiu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm64_t1, (u64) instr->imm);
+    emit_uop(dst, &uop_sltu_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_srai(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_xori(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm64_t1, (i64) instr->imm);
+    emit_uop(dst, &uop_xor_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_ori(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_srli(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm32_t2, (i64) instr->imm & 0x3f);
+    emit_uop(dst, &uop_srl_t0_t2, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_andi(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_srai(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm32_t2, (i64) instr->imm & 0x3f);
+    emit_uop(dst, &uop_sra_t0_t2, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_addiw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_ori(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm64_t1, (u64)(i64) instr->imm);
+    emit_uop(dst, &uop_or_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_slliw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_andi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm64_t1, (u64)(i64) instr->imm);
+    emit_uop(dst, &uop_and_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return *dst - start;
 }
 
-static __ForceInline void emit_srliw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_addiw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sraiw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_slliw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sb(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_srliw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sh(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sraiw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sb(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sd(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sh(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_add(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sll(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sd(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_slt(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_add(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sltu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sll(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_xor(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_slt(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_srl(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sltu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_or(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_xor(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_and(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_srl(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_mul(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_or(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_mulh(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_and(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_mulhsu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_mul(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_mulhu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_mulh(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_div(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_mulhsu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_divu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_mulhu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_rem(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_div(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_remu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_divu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sub(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_rem(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sra(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_remu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_addw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sub(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sllw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sra(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_srlw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_addw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_mulw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sllw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_divw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_srlw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_divuw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_mulw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_remw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_divw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_remuw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_divuw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_subw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_remw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_sraw(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline __Keep u64 emit_remuw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_beq(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_subw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_bne(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_sraw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_blt(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_beq(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_bge(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_bne(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_bltu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_blt(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_bgeu(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_bge(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_jalr(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_bltu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
 }
 
-static __ForceInline void emit_jal(u8 **dst, CPUState *state, Instr *instr)
+static __ForceInline u64 emit_bgeu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
-    (void) dst;
-    (void) state;
-    (void) instr;
+    EMPTY
+}
+
+static __ForceInline u64 emit_jalr(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    EMPTY
+}
+
+static __ForceInline u64 emit_jal(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    EMPTY
+}
+
+static __ForceInline u64 emit_csrrc(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    EMPTY
+}
+
+static __ForceInline u64 emit_csrrci(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    EMPTY
+}
+
+static __ForceInline u64 emit_csrrs(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    EMPTY
+}
+
+static __ForceInline u64 emit_csrrsi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    EMPTY
+}
+
+static __ForceInline u64 emit_csrrw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    EMPTY
+}
+
+static __ForceInline u64 emit_csrrwi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    EMPTY
 }
 
 EmitFunc emit_table[] = {
@@ -501,24 +506,24 @@ EmitFunc emit_table[] = {
     [instr_srl]       = emit_srl,
     [instr_or]        = emit_or,
     [instr_and]       = emit_and,
-    [instr_mul]       = emit_mul,
-    [instr_mulh]      = emit_mulh,
-    [instr_mulhsu]    = emit_mulhsu,
-    [instr_mulhu]     = emit_mulhu,
-    [instr_div]       = emit_div,
-    [instr_divu]      = emit_divu,
-    [instr_rem]       = emit_rem,
-    [instr_remu]      = emit_remu,
+    [instr_mul]       = NULL,
+    [instr_mulh]      = NULL,
+    [instr_mulhsu]    = NULL,
+    [instr_mulhu]     = NULL,
+    [instr_div]       = NULL,
+    [instr_divu]      = NULL,
+    [instr_rem]       = NULL,
+    [instr_remu]      = NULL,
     [instr_sub]       = emit_sub,
     [instr_sra]       = emit_sra,
     [instr_addw]      = emit_addw,
     [instr_sllw]      = emit_sllw,
     [instr_srlw]      = emit_srlw,
-    [instr_mulw]      = emit_mulw,
-    [instr_divw]      = emit_divw,
-    [instr_divuw]     = emit_divuw,
-    [instr_remw]      = emit_remw,
-    [instr_remuw]     = emit_remuw,
+    [instr_mulw]      = NULL,
+    [instr_divw]      = NULL,
+    [instr_divuw]     = NULL,
+    [instr_remw]      = NULL,
+    [instr_remuw]     = NULL,
     [instr_subw]      = emit_subw,
     [instr_sraw]      = emit_sraw,
     [instr_beq]       = emit_beq,
@@ -529,12 +534,12 @@ EmitFunc emit_table[] = {
     [instr_bgeu]      = emit_bgeu,
     [instr_jalr]      = emit_jalr,
     [instr_jal]       = emit_jal,
-    [instr_csrrc]     = NULL,
-    [instr_csrrci]    = NULL,
-    [instr_csrrs]     = NULL,
-    [instr_csrrsi]    = NULL,
-    [instr_csrrw]     = NULL,
-    [instr_csrrwi]    = NULL,
+    [instr_csrrc]     = emit_csrrc,
+    [instr_csrrci]    = emit_csrrci,
+    [instr_csrrs]     = emit_csrrs,
+    [instr_csrrsi]    = emit_csrrsi,
+    [instr_csrrw]     = emit_csrrw,
+    [instr_csrrwi]    = emit_csrrwi,
     [instr_flw]       = NULL,
     [instr_fld]       = NULL,
     [instr_fsw]       = NULL,
@@ -598,3 +603,33 @@ EmitFunc emit_table[] = {
     [instr_fclass_s]  = NULL,
     [instr_fclass_d]  = NULL,
 };
+
+u8 *gen_block(Machine *machine, u64 pc, u64 cache_entry_index)
+{
+    CacheEntry *entry = &machine->cache.entries[cache_entry_index];
+    entry->offset = ROUNDUP(machine->cache.end, 2);
+    u8 *code = machine->cache.jitcode + entry->offset;
+
+    while (true) {
+        Instr instr = {0};
+
+        u32 raw = mem_read_u32(pc);
+        decode_instr(raw, &instr);
+
+        EmitFunc emit = emit_table[instr.kind];
+        if (!emit) // not support emit for this instruction
+            break;
+        u64 length = emit(&code, &machine->state, &instr, pc);
+        entry->length += length;
+        entry->instr_count++;
+
+        if (instr.cfc)
+            break;
+        pc += instr.rvc ? 2 : 4;
+    }
+
+    machine->cache.end = ROUNDUP(entry->offset + entry->length, 2);
+
+    return cache_code(&machine->cache, cache_entry_index);
+}
+

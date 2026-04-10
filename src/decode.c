@@ -539,6 +539,7 @@ bool decode_instr(u32 raw, Instr *out)
             *out = instr_cbtype_read(raw);
             out->rs2 = GPR_ZERO;
             out->kind = copcode == 0x6 ? instr_beq : instr_bne;
+            out->cfc = true;
             return true;
         default:
             fatal("unrecognized copcode");
@@ -1304,21 +1305,27 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct3) {
             case 0x0: /* BEQ */
                 out->kind = instr_beq;
+                out->cfc = true;
                 return true;
             case 0x1: /* BNE */
                 out->kind = instr_bne;
+                out->cfc = true;
                 return true;
             case 0x4: /* BLT */
                 out->kind = instr_blt;
+                out->cfc = true;
                 return true;
             case 0x5: /* BGE */
                 out->kind = instr_bge;
+                out->cfc = true;
                 return true;
             case 0x6: /* BLTU */
                 out->kind = instr_bltu;
+                out->cfc = true;
                 return true;
             case 0x7: /* BGEU */
                 out->kind = instr_bgeu;
+                out->cfc = true;
                 return true;
             default: unreachable();
             }
@@ -1327,14 +1334,17 @@ bool decode_instr(u32 raw, Instr *out)
         case 0x19: /* JALR */
             *out = instr_itype_read(raw);
             out->kind = instr_jalr;
+            out->cfc = true;
             return true;
         case 0x1b: /* JAL */
             *out = instr_jtype_read(raw);
             out->kind = instr_jal;
+            out->cfc = true;
             return true;
         case 0x1c: {
             if (raw == 0x73) { /* ECALL */
                 out->kind = instr_ecall;
+                out->cfc = true;
                 return true;
             }
 

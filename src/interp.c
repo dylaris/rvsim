@@ -30,7 +30,7 @@ INTERPFUNC_SIGNATURE(name) \
 #define GEN_AUIPC(name, a1, a2, a3, a4) \
 INTERPFUNC_SIGNATURE(name) \
 { \
-    u64 val = state->pc + (i64) instr->imm; \
+    u64 val = cpu_get_pc(state) + (i64) instr->imm; \
     cpu_set_gpr(state, instr->rd, val); \
 }
 
@@ -61,11 +61,10 @@ INTERPFUNC_SIGNATURE(name) \
 { \
     u64 rs1 = cpu_get_gpr(state, instr->rs1); \
     u64 rs2 = cpu_get_gpr(state, instr->rs2); \
-    GuestVAddr addr = state->pc + (i64) instr->imm; \
+    GuestVAddr addr = cpu_get_pc(state) + (i64) instr->imm; \
     if (expr) { \
-        instr->cfc = true; \
-        state->flow.ctl = FLOW_BRANCH; \
-        state->flow.pc = addr; \
+        cpu_set_flow_ctl(state, FLOW_BRANCH); \
+        cpu_set_flow_pc(state, addr); \
     } \
 }
 
@@ -74,20 +73,20 @@ INTERPFUNC_SIGNATURE(name) \
 { \
     u64 rs1 = cpu_get_gpr(state, instr->rs1); \
     i64 imm = (i64) instr->imm; \
-    u64 pc = state->pc; \
+    u64 pc = cpu_get_pc(state); \
     cpu_set_gpr(state, instr->rd, pc + (instr->rvc ? 2 : 4)); \
-    instr->cfc = true; \
-    state->flow.ctl = FLOW_JUMP; \
-    state->flow.pc = (addr); \
+    cpu_set_flow_ctl(state, FLOW_JUMP); \
+    cpu_set_flow_pc(state, addr); \
     (void) rs1; \
 }
 
 #define GEN_ECALL(name, a1, a2, a3, a4) \
 INTERPFUNC_SIGNATURE(name) \
 { \
-    instr->cfc = true; \
-    state->flow.ctl = FLOW_ECALL; \
-    state->flow.pc = state->pc + 4; \
+    (void) instr; \
+    GuestVAddr addr = cpu_get_pc(state) + 4; \
+    cpu_set_flow_ctl(state, FLOW_ECALL); \
+    cpu_set_flow_pc(state, addr); \
 }
 
 #define GEN_CSR(name, a1, a2, a3, a4) \
@@ -194,50 +193,68 @@ typedef void (*InstrFunc)(CPUState *, Instr *);
 static InstrFunc dispatch_table[] = { INSTRUCTION_LIST(X) };
 #undef X // Generate dispatch table
 
+#ifdef DEBUG
 void interp_single(Machine *machine)
 {
+    CPUState *state = &machine->state;
+#else
+void interp_single(CPUState *state)
+{
+#endif
     Instr instr = {0};
 
+#ifdef DEBUG
     if (machine->single_step)
-        cpu_set_flow_ctl(&machine->state, FLOW_HALT);
+        cpu_set_flow_ctl(state, FLOW_HALT);
+#endif
 
-    u32 raw = mem_read_u32(cpu_get_pc(&machine->state));
+    u32 raw = mem_read_u32(cpu_get_pc(state));
 
     if (unlikely(!decode_instr(raw, &instr))) {
-        cpu_set_flow_ctl(&machine->state, FLOW_ILLEGAL_INSTR);
+        cpu_set_flow_ctl(state, FLOW_ILLEGAL_INSTR);
         return;
     }
 
-    cpu_increase_flow_pc(&machine->state, instr.rvc ? 2 : 4);
+    cpu_increase_flow_pc(state, instr.rvc ? 2 : 4);
+
     InstrFunc func = dispatch_table[instr.kind];
-    func(&machine->state, &instr);
-    cpu_commit_pc(&machine->state);
+    func(state, &instr);
+
+    if (instr.cfc)
+        return;
+    cpu_commit_pc(state);
 }
 
+#ifdef DEBUG
 void interp_block(Machine *machine)
 {
+    CPUState *state = &machine->state;
+#else
+void interp_block(CPUState *state)
+{
+#endif
     Instr instr = {0};
 
     while (true) {
-        u64 pc = cpu_get_pc(&machine->state);
+        u64 pc = cpu_get_pc(state);
 
         u32 raw = mem_read_u32(pc);
 
         if (unlikely(!decode_instr(raw, &instr))) {
-            cpu_set_flow_ctl(&machine->state, FLOW_ILLEGAL_INSTR);
+            cpu_set_flow_ctl(state, FLOW_ILLEGAL_INSTR);
             break;
         }
 
 #ifdef DEBUG
         if (unlikely(!machine->skip_breakpoint && machine_check_breakpoint(machine, pc))) {
-            cpu_set_flow_ctl(&machine->state, FLOW_HALT);
+            cpu_set_flow_ctl(state, FLOW_HALT);
             break;
         }
 #endif
-        cpu_increase_flow_pc(&machine->state, instr.rvc ? 2 : 4);
+        cpu_increase_flow_pc(state, instr.rvc ? 2 : 4);
+
         InstrFunc func = dispatch_table[instr.kind];
-        func(&machine->state, &instr);
-        cpu_commit_pc(&machine->state);
+        func(state, &instr);
 
 #ifdef DEBUG
         machine->skip_breakpoint = false;
@@ -245,40 +262,7 @@ void interp_block(Machine *machine)
 
         if (instr.cfc)
             break;
+        cpu_commit_pc(state);
     }
 }
 
-void interp_loop(Machine *machine)
-{
-    Instr instr = {0};
-
-    while (true) {
-        u64 pc = cpu_get_pc(&machine->state);
-
-        u32 raw = mem_read_u32(pc);
-
-        if (unlikely(!decode_instr(raw, &instr))) {
-            cpu_set_flow_ctl(&machine->state, FLOW_ILLEGAL_INSTR);
-            break;
-        }
-
-#ifdef DEBUG
-        if (unlikely(!machine->skip_breakpoint && machine_check_breakpoint(machine, pc))) {
-            cpu_set_flow_ctl(&machine->state, FLOW_HALT);
-            break;
-        }
-#endif
-
-        cpu_increase_flow_pc(&machine->state, instr.rvc ? 2 : 4);
-        InstrFunc func = dispatch_table[instr.kind];
-        func(&machine->state, &instr);
-        cpu_commit_pc(&machine->state);
-
-#ifdef DEBUG
-        machine->skip_breakpoint = false;
-#endif
-
-        if (IS_TRAP(cpu_get_flow_ctl(&machine->state)))
-            break;
-    }
-}

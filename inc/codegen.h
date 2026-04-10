@@ -1,15 +1,8 @@
 #ifndef CODEGEN_H
 #define CODEGEN_H
 
-#include "decode.h"
-#include "cpu.h"
+#include "machine.h"
 
-typedef void (*EmitFunc)(u8 **, CPUState *, Instr *);
-extern EmitFunc emit_table[];
-
-static __ForceInline EmitFunc get_emit_func(InstrKind kind)
-{
-    return emit_table[kind];
-}
+u8 *gen_block(Machine *machine, u64 pc, u64 cache_entry_index);
 
 #endif // CODEGEN_H

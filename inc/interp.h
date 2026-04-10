@@ -1,12 +1,17 @@
 #ifndef INTERP_H
 #define INTERP_H
 
-#include "machine.h"
 #include <math.h>
 
+#ifdef DEBUG
+#include "machine.h"
 void interp_single(Machine *machine);
 void interp_block(Machine *machine);
-void interp_loop(Machine *machine);
+#else
+#include "cpu.h"
+void interp_single(CPUState *state);
+void interp_block(CPUState *state);
+#endif
 
 /*
  * help functions below

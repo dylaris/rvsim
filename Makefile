@@ -1,5 +1,12 @@
 CC 	     = clang
-CFLAGS   = -ggdb -Wall -Wextra -O3 -Iinc/
+
+ifeq ($(findstring debug,$(MAKECMDGOALS)),debug)
+OPT_CFLAGS =
+else
+OPT_CFLAGS = -O3
+endif
+
+CFLAGS   = -ggdb -Wall -Wextra -Iinc/ $(OPT_CFLAGS)
 CLDFLAGS = -lm
 
 EXE_CFLAGS  = $(CFLAGS)

@@ -15,9 +15,10 @@ ResultVoid machine_load_bin(Machine *machine, const char *prog, GuestVAddr base)
         goto defer;
 
     cpu_set_pc(&machine->state, machine->mem.entry);
+    cpu_set_flow_pc(&machine->state, machine->mem.entry);
 
 defer:
-    if (!f)
+    if (f)
         fclose(f);
     if (!res.ok)
         mem_clear(&machine->mem);
@@ -38,9 +39,10 @@ ResultVoid machine_load_elf(Machine *machine, const char *prog)
         goto defer;
 
     cpu_set_pc(&machine->state, machine->mem.entry);
+    cpu_set_flow_pc(&machine->state, machine->mem.entry);
 
 defer:
-    if (!f)
+    if (f)
         fclose(f);
     if (!res.ok)
         mem_clear(&machine->mem);
@@ -116,7 +118,6 @@ ResultVoid machine_trap(Machine *machine)
     switch (machine->state.flow.ctl) {
     case FLOW_ECALL:
         do_syscall(machine);
-        cpu_commit_pc(&machine->state);
         break;
 
     case FLOW_ILLEGAL_INSTR:
@@ -151,16 +152,34 @@ defer:
 
 void machine_resolve(Machine *machine)
 {
-    if (machine->single_step)
+#ifdef DEBUG
+    if (machine->single_step) {
         machine->engine = interp_single;
-    else
-        machine->engine = interp_loop;
+        return;
+    }
+    machine->engine = interp_block;
+#else
+    machine->engine = interp_block;
+    // u64 pc = cpu_get_pc(&machine->state);
+    // u64 index = cache_lookup(&machine->cache, pc);
+    // u8 *code = cache_code(&machine->cache, index);
+    // if (!code && cache_hot(&machine->cache, pc)) {
+    //     code = gen_block(machine, pc, index);
+    //     u64 instr_count = machine->cache.entries[index].instr_count;
+    //     cpu_increase_flow_pc(&machine->state, instr_count);
+    // }
+    // machine->engine = code ? (BlockExec) code : interp_block;
+#endif
 }
 
 void machine_step(Machine *machine)
 {
-    cpu_reset_flow(&machine->state);
+    cpu_reset_flow_ctl(&machine->state);
+#ifdef DEBUG
     machine->engine(machine);
+#else
+    machine->engine(&machine->state);
+#endif
 }
 
 Machine machine_create(void)
@@ -169,6 +188,7 @@ Machine machine_create(void)
         .state       = (CPUState) {0},
         .mem         = (Memory) {0},
         .engine      = NULL,
+        .cache       = cache_create(MB(16), KB(64)),
         .halt        = false,
         .single_step = false,
         .breakpoints = NULL,
@@ -179,6 +199,7 @@ void machine_destroy(Machine *machine)
 {
     mem_clear(&machine->mem);
     array_free(machine->breakpoints);
+    cache_destroy(&machine->cache);
 }
 
 void machine_add_breakpoint(Machine *machine, GuestVAddr breakpoint)

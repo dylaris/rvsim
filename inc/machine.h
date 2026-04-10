@@ -5,15 +5,24 @@
 #include "memory.h"
 #include "err.h"
 #include "minicc.h"
+#include "cache.h"
 
 #define DBCACHE_SIZE 4096
 
 typedef struct Machine Machine;
 
+#ifdef DEBUG
+typedef void (*BlockExec)(Machine *);
+#else
+typedef void (*BlockExec)(CPUState *);
+#endif
+
 struct Machine {
     CPUState state;
     Memory mem;
-    void (*engine)(Machine *);
+    BlockExec engine;
+
+    Cache cache;
 
     bool single_step;
     bool halt;

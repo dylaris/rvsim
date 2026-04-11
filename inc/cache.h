@@ -35,6 +35,7 @@ static __ForceInline __Keep u8 *cache_code(Cache *cache, u64 index)
 
 static __ForceInline __Keep bool cache_hot(Cache *cache, u64 index)
 {
+    // printf("cache[%ld]: %ld\n", index, cache->entries[index].hot);
     return cache->entries[index].hot >= CACHE_HOT_COUNT;
 }
 

@@ -140,8 +140,11 @@ DEFINE_UOP(or_t0_t1,  "t0 = t0 | t1", 0, 0, \
 DEFINE_UOP(xor_t0_t1, "t0 = t0 ^ t1", 0, 0, \
            0x48, 0x31, 0xD8)
 // cdqe (rax = sign_extend(eax))
-DEFINE_UOP(sext_t0, "t0 = sext32(t0)", 0, 0, \
+DEFINE_UOP(sext32_t0, "t0 = sext32(t0)", 0, 0, \
            0x48, 0x98)
+// mov eax, eax
+DEFINE_UOP(zext32_t0, "t0 = zext32(t0)", 0, 0, \
+           0x89, 0xC0)
 
 ///////////////////////////////////
 // shift
@@ -205,5 +208,20 @@ DEFINE_UOP(ltu_t0_t1, "t0 = (u)t0 < (u)t1", 0, 0, \
 // movzx rax, al
 DEFINE_UOP(geu_t0_t1,  "t0 = (u)t0 >= (u)t1", 0, 0, \
            0x48, 0x39, 0xD8, 0x0F, 0x93, 0xC0, 0x48, 0x0F, 0xB6, 0xC0)
+
+///////////////////////////////////
+// branch
+///////////////////////////////////
+// test al, al
+// jz false_case
+DEFINE_UOP(branch, "if (!t0) goto false_case; ...", 4, 4, \
+           0x84, 0xC0, 0x0F, 0x84, 0x00, 0x00, 0x00, 0x00)
+
+///////////////////////////////////
+// jump
+///////////////////////////////////
+// jmp imm32
+DEFINE_UOP(jump, "jmp rel32", 1, 4, \
+           0xE9, 0x00, 0x00, 0x00, 0x00)
 
 #endif // UOP_H

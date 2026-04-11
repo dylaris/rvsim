@@ -159,16 +159,13 @@ void machine_resolve(Machine *machine)
     }
     machine->engine = interp_block;
 #else
-    machine->engine = interp_block;
-    // u64 pc = cpu_get_pc(&machine->state);
-    // u64 index = cache_lookup(&machine->cache, pc);
-    // u8 *code = cache_code(&machine->cache, index);
-    // if (!code && cache_hot(&machine->cache, pc)) {
-    //     code = gen_block(machine, pc, index);
-    //     u64 instr_count = machine->cache.entries[index].instr_count;
-    //     cpu_increase_flow_pc(&machine->state, instr_count);
-    // }
-    // machine->engine = code ? (BlockExec) code : interp_block;
+    // machine->engine = interp_block;
+    u64 pc = cpu_get_pc(&machine->state);
+    u64 index = cache_lookup(&machine->cache, pc);
+    u8 *code = cache_code(&machine->cache, index);
+    if (!code && cache_hot(&machine->cache, index))
+        code = gen_block(machine, pc, index);
+    machine->engine = code ? (BlockExec) code : interp_block;
 #endif
 }
 

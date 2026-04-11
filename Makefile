@@ -1,4 +1,4 @@
-CC 	     = clang
+CC = clang
 
 ifeq ($(findstring debug,$(MAKECMDGOALS)),debug)
 OPT_CFLAGS =

@@ -5,8 +5,11 @@
 
 typedef u64 (*EmitFunc)(u8 **, CPUState *, Instr *, u64);
 
-#define REG_OFFSET(idx) ((i64) ((char *) state->gp_regs[idx] - (char *) state->gp_regs))
-#define ADDRESS(imm) ((i64) mmu_to_host((i64) (imm)))
+#define OFFSETOF(st, m) ((size_t) &(((st *) 0)->m))
+#define REG_OFFSET(idx) ((i64) ((char *) &state->gp_regs[idx] - (char *) state))
+#define MEM_OFFSET(m) ((i64) (OFFSETOF(CPUState, m)))
+#define MEM2_OFFSET(m1, m2) ((i64) (OFFSETOF(CPUState, m1) + OFFSETOF(Flow, m2)))
+#define ADDR_OFFSET(imm) ((i64) mmu_to_host((i64) (imm)))
 
 // Helper function to write bytes in little-endian order
 static __ForceInline void write_le_bytes(u8 *dst, u64 value, u64 num_bytes)
@@ -17,10 +20,31 @@ static __ForceInline void write_le_bytes(u8 *dst, u64 value, u64 num_bytes)
 
 static __ForceInline void emit_uop(u8 **dst, UOP *uop, i64 imm)
 {
-    memcpy(*dst, uop->code, uop->length);
     if (uop->patch_length)
         write_le_bytes(uop->code + uop->patch_offset, (u64) imm, uop->patch_length);
+    memcpy(*dst, uop->code, uop->length);
     *dst += uop->length;
+}
+
+static void emit_prologue(u8 **dst)
+{
+    // push rbp
+    // mov rbp, rsp
+    // push rbx
+    const u8 prologue[] = { 0x55, 0x48, 0x89, 0xE5, 0x53 };
+    memcpy(*dst, prologue, sizeof(prologue));
+    *dst += sizeof(prologue);
+}
+
+static void emit_epilogue(u8 **dst)
+{
+    // pop rbx
+    // mov rsp, rbp
+    // pop rbp
+    // ret
+    const u8 epilogue[] = { 0x5B, 0x48, 0x89, 0xEC, 0x5D, 0xC3 };
+    memcpy(*dst, epilogue, sizeof(epilogue));
+    *dst += sizeof(epilogue);
 }
 
 #define EMPTY \
@@ -34,64 +58,64 @@ static __ForceInline void emit_uop(u8 **dst, UOP *uop, i64 imm)
     (void) pc; \
     u8 *start = *dst; \
     emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs1)); \
-    emit_uop(dst, &uop_load_##type, ADDRESS(instr->imm)); \
+    emit_uop(dst, &uop_load_##type, ADDR_OFFSET(instr->imm)); \
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd)); \
     return (u64) (*dst - start);
 
 
-static __ForceInline u64 emit_lb(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_lb(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     FUNC(s8)
 }
 
-static __ForceInline u64 emit_lh(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_lh(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     FUNC(s16)
 }
 
-static __ForceInline u64 emit_lw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_lw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     FUNC(s32)
 }
 
-static __ForceInline u64 emit_ld(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_ld(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     FUNC(u64)
 }
 
-static __ForceInline u64 emit_lbu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_lbu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     FUNC(u8)
 }
 
-static __ForceInline u64 emit_lhu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_lhu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     FUNC(u16)
 }
 
-static __ForceInline u64 emit_lwu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_lwu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     FUNC(u32)
 }
 
 #undef FUNC
 
-static __ForceInline u64 emit_fence(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_fence(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_fence_i(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_fence_i(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_ebreak(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_ebreak(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_auipc(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_auipc(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     u8 *start = *dst;
     u64 val = pc + (i64) instr->imm;
@@ -100,16 +124,16 @@ static __ForceInline u64 emit_auipc(u8 **dst, CPUState *state, Instr *instr, u64
     return *dst - start;
 }
 
-static __ForceInline u64 emit_lui(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_lui(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) pc;
     u8 *start = *dst;
     emit_uop(dst, &uop_move_imm64_t0, (i64) instr->imm);
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
-    return *dst - start;
+    return (u64) (*dst - start);
 }
 
-static __ForceInline u64 emit_ecall(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_ecall(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) dst;
     (void) instr;
@@ -118,7 +142,7 @@ static __ForceInline u64 emit_ecall(u8 **dst, CPUState *state, Instr *instr, u64
     return 0;
 }
 
-static __ForceInline u64 emit_addi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_addi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) pc;
     u8 *start = *dst;
@@ -126,10 +150,10 @@ static __ForceInline u64 emit_addi(u8 **dst, CPUState *state, Instr *instr, u64 
     emit_uop(dst, &uop_move_imm64_t1, (i64) instr->imm);
     emit_uop(dst, &uop_add_t0_t1, 0);
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
-    return *dst - start;
+    return (u64) (*dst - start);
 }
 
-static __ForceInline u64 emit_slli(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_slli(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) pc;
     u8 *start = *dst;
@@ -137,10 +161,10 @@ static __ForceInline u64 emit_slli(u8 **dst, CPUState *state, Instr *instr, u64 
     emit_uop(dst, &uop_move_imm32_t2, (i64) instr->imm & 0x3f);
     emit_uop(dst, &uop_sll_t0_t2, 0);
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
-    return *dst - start;
+    return (u64) (*dst - start);
 }
 
-static __ForceInline u64 emit_slti(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_slti(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) pc;
     u8 *start = *dst;
@@ -148,10 +172,10 @@ static __ForceInline u64 emit_slti(u8 **dst, CPUState *state, Instr *instr, u64 
     emit_uop(dst, &uop_move_imm64_t1, (i64) instr->imm);
     emit_uop(dst, &uop_slt_t0_t1, 0);
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
-    return *dst - start;
+    return (u64) (*dst - start);
 }
 
-static __ForceInline u64 emit_sltiu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_sltiu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) pc;
     u8 *start = *dst;
@@ -159,10 +183,10 @@ static __ForceInline u64 emit_sltiu(u8 **dst, CPUState *state, Instr *instr, u64
     emit_uop(dst, &uop_move_imm64_t1, (u64) instr->imm);
     emit_uop(dst, &uop_sltu_t0_t1, 0);
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
-    return *dst - start;
+    return (u64) (*dst - start);
 }
 
-static __ForceInline u64 emit_xori(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_xori(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) pc;
     u8 *start = *dst;
@@ -170,10 +194,10 @@ static __ForceInline u64 emit_xori(u8 **dst, CPUState *state, Instr *instr, u64 
     emit_uop(dst, &uop_move_imm64_t1, (i64) instr->imm);
     emit_uop(dst, &uop_xor_t0_t1, 0);
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
-    return *dst - start;
+    return (u64) (*dst - start);
 }
 
-static __ForceInline u64 emit_srli(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_srli(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) pc;
     u8 *start = *dst;
@@ -181,10 +205,10 @@ static __ForceInline u64 emit_srli(u8 **dst, CPUState *state, Instr *instr, u64 
     emit_uop(dst, &uop_move_imm32_t2, (i64) instr->imm & 0x3f);
     emit_uop(dst, &uop_srl_t0_t2, 0);
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
-    return *dst - start;
+    return (u64) (*dst - start);
 }
 
-static __ForceInline u64 emit_srai(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_srai(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) pc;
     u8 *start = *dst;
@@ -192,10 +216,10 @@ static __ForceInline u64 emit_srai(u8 **dst, CPUState *state, Instr *instr, u64 
     emit_uop(dst, &uop_move_imm32_t2, (i64) instr->imm & 0x3f);
     emit_uop(dst, &uop_sra_t0_t2, 0);
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
-    return *dst - start;
+    return (u64) (*dst - start);
 }
 
-static __ForceInline u64 emit_ori(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_ori(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) pc;
     u8 *start = *dst;
@@ -203,10 +227,10 @@ static __ForceInline u64 emit_ori(u8 **dst, CPUState *state, Instr *instr, u64 p
     emit_uop(dst, &uop_move_imm64_t1, (u64)(i64) instr->imm);
     emit_uop(dst, &uop_or_t0_t1, 0);
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
-    return *dst - start;
+    return (u64) (*dst - start);
 }
 
-static __ForceInline u64 emit_andi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_andi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     (void) pc;
     u8 *start = *dst;
@@ -214,255 +238,455 @@ static __ForceInline u64 emit_andi(u8 **dst, CPUState *state, Instr *instr, u64 
     emit_uop(dst, &uop_move_imm64_t1, (u64)(i64) instr->imm);
     emit_uop(dst, &uop_and_t0_t1, 0);
     emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
-    return *dst - start;
+    return (u64) (*dst - start);
 }
 
-static __ForceInline u64 emit_addiw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_addiw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm64_t1, (i64) instr->imm);
+    emit_uop(dst, &uop_add_t0_t1, 0);
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_slliw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm32_t2, (i64) instr->imm & 0x1f);
+    emit_uop(dst, &uop_sll_t0_t2, 0);
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_srliw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_zext32_t0, 0);
+    emit_uop(dst, &uop_move_imm32_t2, (i64) instr->imm & 0x1f);
+    emit_uop(dst, &uop_srl_t0_t2, 0);
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_sraiw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_move_imm32_t2, (i64) instr->imm & 0x1f);
+    emit_uop(dst, &uop_sra_t0_t2, 0);
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+#define FUNC(type) \
+    (void) pc; \
+    u8 *start = *dst; \
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2)); \
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1)); \
+    emit_uop(dst, &uop_store_##type, ADDR_OFFSET(instr->imm)); \
+    return (u64) (*dst - start);
+
+static u64 emit_sb(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    FUNC(u8)
+}
+
+static u64 emit_sh(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    FUNC(u16)
+}
+
+static u64 emit_sw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    FUNC(u32)
+}
+
+static u64 emit_sd(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    FUNC(u64)
+}
+
+#undef FUNC
+
+static u64 emit_add(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_add_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_sll(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_move_imm32_t1, 0x3f);
+    emit_uop(dst, &uop_and_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_t2, 0);
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_sll_t0_t2, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_slt(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_slt_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_sltu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_sltu_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_xor(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_xor_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_srl(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_move_imm32_t1, 0x3f);
+    emit_uop(dst, &uop_and_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_t2, 0);
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_srl_t0_t2, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_or(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_or_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_and(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_and_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static __Keep u64 emit_mul(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_slliw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_mulh(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_srliw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_mulhsu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_sraiw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_mulhu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_sb(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_div(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_sh(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_divu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_sw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_rem(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_sd(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_remu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_add(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_sub(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_sub_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_sra(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_move_imm32_t1, 0x3f);
+    emit_uop(dst, &uop_and_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_t2, 0);
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_sra_t0_t2, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_addw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_add_t0_t1, 0);
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_sllw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_move_imm32_t1, 0x1f);
+    emit_uop(dst, &uop_and_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_t2, 0);
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_sll_t0_t2, 0);
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_srlw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_zext32_t0, 0);
+    emit_uop(dst, &uop_move_imm32_t1, 0x1f);
+    emit_uop(dst, &uop_and_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_t2, 0);
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_srl_t0_t2, 0);
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static __Keep u64 emit_mulw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_sll(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_divw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_slt(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_divuw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_sltu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_remw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_xor(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static __Keep u64 emit_remuw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_srl(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_subw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_sub_t0_t1, 0);
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_sraw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    (void) pc;
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs2));
+    emit_uop(dst, &uop_move_imm32_t1, 0x1f);
+    emit_uop(dst, &uop_and_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_t2, 0);
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_sra_t0_t2, 0);
+    emit_uop(dst, &uop_sext32_t0, 0);
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    return (u64) (*dst - start);
+}
+
+#define FUNC(op) \
+    u8 *start = *dst; \
+    GuestVAddr addr = pc + (i64) instr->imm; \
+    u64 jump_offset; \
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1)); \
+    emit_uop(dst, &uop_move_reg_t1, REG_OFFSET(instr->rs2)); \
+    emit_uop(dst, &uop_##op##_t0_t1, 0); \
+    u8 *branch = *dst; \
+    emit_uop(dst, &uop_branch, 0); /* backpatch */ \
+    u8 *true_case = *dst; \
+    emit_uop(dst, &uop_move_imm32_t0, FLOW_BRANCH); \
+    emit_uop(dst, &uop_move_t0_reg, MEM2_OFFSET(flow, ctl)); \
+    emit_uop(dst, &uop_move_imm64_t0, (i64) addr); \
+    emit_uop(dst, &uop_move_t0_reg, MEM2_OFFSET(flow, pc)); \
+    emit_uop(dst, &uop_jump, 0); /* backpatch */ \
+    u8 *false_case = *dst; \
+    emit_uop(dst, &uop_move_imm64_t0, pc + (instr->rvc ? 2 : 4)); \
+    emit_uop(dst, &uop_move_t0_reg, MEM2_OFFSET(flow, pc)); \
+    u8 *false_case_end = *dst; \
+    jump_offset = (u64) (false_case - true_case); \
+    write_le_bytes(branch + uop_branch.patch_offset, jump_offset, uop_branch.patch_length); \
+    jump_offset = (u64) (false_case_end - false_case); \
+    write_le_bytes(false_case - uop_jump.patch_length, jump_offset, uop_jump.patch_length); \
+    return (u64) (*dst - start);
+
+static u64 emit_beq(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    FUNC(eq)
+}
+
+static u64 emit_bne(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    FUNC(ne)
+}
+
+static u64 emit_blt(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    FUNC(lt)
+}
+
+static u64 emit_bge(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    FUNC(ge)
+}
+
+static u64 emit_bltu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    FUNC(ltu)
+}
+
+static u64 emit_bgeu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    FUNC(geu)
+}
+
+#undef FUNC
+
+static u64 emit_jalr(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_imm64_t0, pc + (instr->rvc ? 2 : 4));
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    emit_uop(dst, &uop_move_imm32_t0, FLOW_JUMP);
+    emit_uop(dst, &uop_move_t0_reg, MEM2_OFFSET(flow, ctl));
+    emit_uop(dst, &uop_move_reg_t0, REG_OFFSET(instr->rs1));
+    emit_uop(dst, &uop_move_imm64_t1, (i64) instr->imm);
+    emit_uop(dst, &uop_add_t0_t1, 0);
+    emit_uop(dst, &uop_move_imm64_t1, ~(u64)1);
+    emit_uop(dst, &uop_and_t0_t1, 0);
+    emit_uop(dst, &uop_move_t0_reg, MEM2_OFFSET(flow, pc));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_jal(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+{
+    u8 *start = *dst;
+    emit_uop(dst, &uop_move_imm64_t0, pc + (instr->rvc ? 2 : 4));
+    emit_uop(dst, &uop_move_t0_reg, REG_OFFSET(instr->rd));
+    emit_uop(dst, &uop_move_imm32_t0, FLOW_JUMP);
+    emit_uop(dst, &uop_move_t0_reg, MEM2_OFFSET(flow, ctl));
+    emit_uop(dst, &uop_move_imm64_t0, pc + (i64) instr->imm);
+    emit_uop(dst, &uop_move_t0_reg, MEM2_OFFSET(flow, pc));
+    return (u64) (*dst - start);
+}
+
+static u64 emit_csrrc(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_or(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_csrrci(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline u64 emit_and(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_csrrs(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline __Keep u64 emit_mul(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_csrrsi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline __Keep u64 emit_mulh(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_csrrw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
 
-static __ForceInline __Keep u64 emit_mulhsu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline __Keep u64 emit_mulhu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline __Keep u64 emit_div(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline __Keep u64 emit_divu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline __Keep u64 emit_rem(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline __Keep u64 emit_remu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_sub(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_sra(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_addw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_sllw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_srlw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline __Keep u64 emit_mulw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline __Keep u64 emit_divw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline __Keep u64 emit_divuw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline __Keep u64 emit_remw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline __Keep u64 emit_remuw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_subw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_sraw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_beq(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_bne(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_blt(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_bge(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_bltu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_bgeu(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_jalr(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_jal(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_csrrc(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_csrrci(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_csrrs(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_csrrsi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_csrrw(u8 **dst, CPUState *state, Instr *instr, u64 pc)
-{
-    EMPTY
-}
-
-static __ForceInline u64 emit_csrrwi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
+static u64 emit_csrrwi(u8 **dst, CPUState *state, Instr *instr, u64 pc)
 {
     EMPTY
 }
@@ -608,7 +832,10 @@ u8 *gen_block(Machine *machine, u64 pc, u64 cache_entry_index)
 {
     CacheEntry *entry = &machine->cache.entries[cache_entry_index];
     entry->offset = ROUNDUP(machine->cache.end, 2);
-    u8 *code = machine->cache.jitcode + entry->offset;
+    u8 *start = machine->cache.jitcode + entry->offset;
+    u8 *code = start;
+
+    emit_prologue(&code);
 
     while (true) {
         Instr instr = {0};
@@ -619,8 +846,7 @@ u8 *gen_block(Machine *machine, u64 pc, u64 cache_entry_index)
         EmitFunc emit = emit_table[instr.kind];
         if (!emit) // not support emit for this instruction
             break;
-        u64 length = emit(&code, &machine->state, &instr, pc);
-        entry->length += length;
+        emit(&code, &machine->state, &instr, pc);
         entry->instr_count++;
 
         if (instr.cfc)
@@ -628,8 +854,13 @@ u8 *gen_block(Machine *machine, u64 pc, u64 cache_entry_index)
         pc += instr.rvc ? 2 : 4;
     }
 
-    machine->cache.end = ROUNDUP(entry->offset + entry->length, 2);
-
-    return cache_code(&machine->cache, cache_entry_index);
+    if (entry->instr_count == 0)
+        return NULL;
+    else {
+        emit_epilogue(&code);
+        entry->length = (u64) (code - start);
+        machine->cache.end = ROUNDUP(entry->offset + entry->length, 2);
+        return start;
+    }
 }
 

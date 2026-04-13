@@ -2,41 +2,32 @@
 #define CACHE_H
 
 #include "common.h"
+#include "ht.h"
 
 #define CACHE_HOT_COUNT 10000
+
+#define CACHE_SIZE MB(16)
 
 typedef struct {
     u64 pc;
     u64 hot;
-    u64 instr_count;
+    u8 *code;
     u64 offset;
     u64 length;
 } CacheEntry;
 
+typedef Ht(u64, CacheEntry) CacheLookup;
+
 typedef struct {
     u8 *jitcode;
-    u64 end;
+    u64 offset;
+    CacheLookup lookup;
     u64 capacity;
-    Hash entry_lookup;
-    CacheEntry __Array *entries;
 } Cache;
 
-Cache cache_create(u64 capacity, u64 nentry);
+Cache cache_create(u64 capacity);
 void cache_destroy(Cache *cache);
-u64 cache_lookup(Cache *cache, u64 pc);
-
-static __ForceInline __Keep u8 *cache_code(Cache *cache, u64 index)
-{
-    u64 instr_count = cache->entries[index].instr_count;
-    if (instr_count == 0)
-        return NULL;
-    return cache->jitcode + cache->entries[index].offset;
-}
-
-static __ForceInline __Keep bool cache_hot(Cache *cache, u64 index)
-{
-    // printf("cache[%ld]: %ld\n", index, cache->entries[index].hot);
-    return cache->entries[index].hot >= CACHE_HOT_COUNT;
-}
+CacheEntry *cache_lookup(Cache *cache, u64 pc);
+u8 *cache_add(Cache *cache, u64 pc, u8 *code, size_t sz, u64 align);
 
 #endif // CACHE_H

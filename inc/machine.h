@@ -4,10 +4,15 @@
 #include "cpu.h"
 #include "memory.h"
 #include "err.h"
-#include "minicc.h"
 #include "cache.h"
+#include "nob.h"
 
-#define DBCACHE_SIZE 4096
+// Store address
+typedef struct {
+    u64 *items;
+    size_t count;
+    size_t capacity;
+} Stack;
 
 typedef struct Machine Machine;
 
@@ -26,12 +31,13 @@ struct Machine {
 
     bool single_step;
     bool halt;
-    GuestVAddr __Array *breakpoints;
+    Stack breakpoints;
     bool skip_breakpoint;
 };
 
 Machine machine_create(void);
 void machine_destroy(Machine *machine);
+void machine_print(const Machine *machine);
 void machine_resolve(Machine *machine);
 void machine_step(Machine *machine);
 ResultVoid machine_load_bin(Machine *machine, const char *prog, GuestVAddr base);

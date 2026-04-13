@@ -20,34 +20,7 @@ typedef struct {
     bool cfc; // Is control flow changed?
 } Instr;
 
-// Static instruction metadata
-typedef struct InstrInfo InstrInfo;
-struct InstrInfo {
-    const char *name;
-    InstrKind kind;
-
-    u16 opcode;      // [6:0]
-    u16 funct2;      // [26:25]
-    u16 funct3;      // [14:12]
-    u16 funct5high;  // [31:27]
-    u16 funct5low;   // [24:20]
-    u16 funct6;      // [31:26]
-    u16 funct7;      // [31:25]
-    u16 funct12;     // [31:20]
-
-    u16 copcode;     // [1:0]
-    u16 cfunct1;     // [12]
-    u16 cfunct2high; // [11:10]
-    u16 cfunct2low;  // [6:5]
-    u16 cfunct3;     // [15:13]
-    u16 cfunct5high; // [11:7]
-    u16 cfunct5low;  // [6:2]
-
-    Instr (*decode)(const InstrInfo *, u32);
-};
-
 bool decode_instr(u32 raw, Instr *out);
-bool decode_instr_info(u32 raw, InstrInfo *out);
 const char *instr_to_string(const Instr *instr);
 
 #endif // DECODE_H

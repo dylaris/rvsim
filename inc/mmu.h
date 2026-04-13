@@ -39,14 +39,7 @@
 typedef u64 HostVAddr;
 typedef u64 GuestVAddr;
 
-static __ForceInline HostVAddr mmu_to_host(GuestVAddr addr)
-{
-    return addr + GUEST_MEMORY_OFFSET;
-}
-
-static __ForceInline GuestVAddr mmu_to_guest(HostVAddr addr)
-{
-    return addr - GUEST_MEMORY_OFFSET;
-}
+#define mmu_to_host(addr)  ((addr) + GUEST_MEMORY_OFFSET)
+#define mmu_to_guest(addr) ((addr) - GUEST_MEMORY_OFFSET)
 
 #endif // MMU_H

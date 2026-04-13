@@ -72,7 +72,7 @@ typedef struct {
 #define ERR(T, e)       ((Result(T)) { .ok = false, .err = (e)                                })
 #define SYSERR(T, func) ((Result(T)) { .ok = false, .err = SIM_ERR_NEW(func, strerror(errno)) })
 
-#define return_defer(r) do { res = (r); goto defer; } while (0)
+#define return__defer(r) do { res = (r); goto defer; } while (0)
 
 DEFINE_RESULT(int);
 DEFINE_RESULT(u64);

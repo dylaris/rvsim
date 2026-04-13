@@ -371,6 +371,24 @@ static __ForceInline Instr instr_ciwtype_read(u16 raw)
     };
 }
 
+const char *instr_to_string(const Instr *instr)
+{
+#define X(name, tag, a1, a2, a3, a4) \
+    case instr_##name: \
+        snprintf(buffer, sizeof(buffer), "instr_%s [rd=%d, rs1=%d, rs2=%d, rs3=%d, imm=%d]", \
+                 #name, instr->rd, instr->rs1,  instr->rs2, instr->rs3, instr->imm); \
+    break;
+
+    static char buffer[256] = {0};
+    switch (instr->kind) {
+    INSTRUCTION_LIST(X)
+    default: unreachable();
+    }
+    return buffer;
+
+#undef X
+}
+
 bool decode_instr(u32 raw, Instr *out)
 {
     u32 quadrant = QUADRANT(raw);
@@ -533,13 +551,14 @@ bool decode_instr(u32 raw, Instr *out)
             *out = instr_cjtype_read(raw);
             out->rd = GPR_ZERO;
             out->kind = instr_jal;
+            out->cfc = true;
             return true;
         case 0x6: /* C.BEQZ */
         case 0x7: /* C.BNEZ */
             *out = instr_cbtype_read(raw);
             out->rs2 = GPR_ZERO;
             out->kind = copcode == 0x6 ? instr_beq : instr_bne;
-            out->cfc = true;
+            // out->cfc = true;
             return true;
         default:
             fatal("unrecognized copcode");
@@ -585,6 +604,7 @@ bool decode_instr(u32 raw, Instr *out)
                         return false;
                     out->rd = GPR_ZERO;
                     out->kind = instr_jalr;
+                    out->cfc = true;
                 } else { /* C.MV */
                     out->rd = out->rs1;
                     out->rs1 = GPR_ZERO;
@@ -596,10 +616,12 @@ bool decode_instr(u32 raw, Instr *out)
             case 0x1: {
                 *out = instr_crtype_read(raw);
                 if (out->rs1 == 0 && out->rs2 == 0) { /* C.EBREAK */
-                    fatal("unimplmented");
+                    out->kind = instr_ebreak;
+                    // fatal("unimplmented");
                 } else if (out->rs2 == 0) { /* C.JALR */
                     out->rd = GPR_RA;
                     out->kind = instr_jalr;
+                    out->cfc = true;
                 } else { /* C.ADD */
                     out->rd = out->rs1;
                     out->kind = instr_add;
@@ -1305,27 +1327,27 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct3) {
             case 0x0: /* BEQ */
                 out->kind = instr_beq;
-                out->cfc = true;
+                // out->cfc = true;
                 return true;
             case 0x1: /* BNE */
                 out->kind = instr_bne;
-                out->cfc = true;
+                // out->cfc = true;
                 return true;
             case 0x4: /* BLT */
                 out->kind = instr_blt;
-                out->cfc = true;
+                // out->cfc = true;
                 return true;
             case 0x5: /* BGE */
                 out->kind = instr_bge;
-                out->cfc = true;
+                // out->cfc = true;
                 return true;
             case 0x6: /* BLTU */
                 out->kind = instr_bltu;
-                out->cfc = true;
+                // out->cfc = true;
                 return true;
             case 0x7: /* BGEU */
                 out->kind = instr_bgeu;
-                out->cfc = true;
+                // out->cfc = true;
                 return true;
             default: unreachable();
             }

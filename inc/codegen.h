@@ -3,6 +3,6 @@
 
 #include "machine.h"
 
-u8 *gen_block(Machine *machine, u64 pc, u64 cache_entry_index);
+u8 *gen_block(Machine *machine);
 
 #endif // CODEGEN_H

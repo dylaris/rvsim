@@ -7,5 +7,7 @@
 #include "machine.c"
 #include "rvsim.c"
 
-#define MINICC_IMPLEMENTATION
-#include "minicc.h"
+#define NOB_IMPLEMENTATION
+#include "nob.h"
+#define HT_IMPLEMENTATION
+#include "ht.h"

@@ -15,19 +15,19 @@
     X(auipc,   AUIPC, _, _, _, _) \
     X(lui,     LUI,   _, _, _, _) \
     X(ecall,   ECALL, _, _, _, _) \
-    X(addi,  OP_IMM, rs1 + imm,                            _, _, _) \
-    X(slli,  OP_IMM, rs1 << (imm & 0x3f),                  _, _, _) \
-    X(slti,  OP_IMM, (i64)rs1 < (i64)imm,                  _, _, _) \
-    X(sltiu, OP_IMM, (u64)rs1 < (u64)imm,                  _, _, _) \
-    X(xori,  OP_IMM, rs1 ^ imm,                            _, _, _) \
-    X(srli,  OP_IMM, rs1 >> (imm & 0x3f),                  _, _, _) \
-    X(srai,  OP_IMM, (i64)rs1 >> (imm & 0x3f),             _, _, _) \
-    X(ori,   OP_IMM, rs1 | (u64)imm,                       _, _, _) \
-    X(andi,  OP_IMM, rs1 & (u64)imm,                       _, _, _) \
-    X(addiw, OP_IMM, (i64)(i32)(rs1 + imm),                _, _, _) \
-    X(slliw, OP_IMM, (i64)(i32)(rs1 << (imm & 0x1f)),      _, _, _) \
-    X(srliw, OP_IMM, (i64)(i32)((u32)rs1 >> (imm & 0x1f)), _, _, _) \
-    X(sraiw, OP_IMM, (i64)((i32)rs1 >> (imm & 0x1f)),      _, _, _) \
+    X(addi,  OP_IMM, rs1 + imm,                            rs1 + %ld,                            _, _) \
+    X(slli,  OP_IMM, rs1 << (imm & 0x3f),                  rs1 << (%ld & 0x3f),                  _, _) \
+    X(slti,  OP_IMM, (i64)rs1 < (i64)imm,                  (i64)rs1 < (i64)%ld,                  _, _) \
+    X(sltiu, OP_IMM, (u64)rs1 < (u64)imm,                  (u64)rs1 < (u64)%ld,                  _, _) \
+    X(xori,  OP_IMM, rs1 ^ imm,                            rs1 ^ %ld,                            _, _) \
+    X(srli,  OP_IMM, rs1 >> (imm & 0x3f),                  rs1 >> (%ld & 0x3f),                  _, _) \
+    X(srai,  OP_IMM, (i64)rs1 >> (imm & 0x3f),             (i64)rs1 >> (%ld & 0x3f),             _, _) \
+    X(ori,   OP_IMM, rs1 | (u64)imm,                       rs1 | (u64)%ld,                       _, _) \
+    X(andi,  OP_IMM, rs1 & (u64)imm,                       rs1 & (u64)%ld,                       _, _) \
+    X(addiw, OP_IMM, (i64)(i32)(rs1 + imm),                (i64)(i32)(rs1 + %ld),                _, _) \
+    X(slliw, OP_IMM, (i64)(i32)(rs1 << (imm & 0x1f)),      (i64)(i32)(rs1 << (%ld & 0x1f)),      _, _) \
+    X(srliw, OP_IMM, (i64)(i32)((u32)rs1 >> (imm & 0x1f)), (i64)(i32)((u32)rs1 >> (%ld & 0x1f)), _, _) \
+    X(sraiw, OP_IMM, (i64)((i32)rs1 >> (imm & 0x1f)),      (i64)((i32)rs1 >> (%ld & 0x1f)),      _, _) \
     X(sb, STORE, u8,  _, _, _) \
     X(sh, STORE, u16, _, _, _) \
     X(sw, STORE, u32, _, _, _) \
@@ -66,8 +66,8 @@
     X(bge,  BRANCH, (i64)rs1 >= (i64)rs2, _, _, _) \
     X(bltu, BRANCH, (u64)rs1 <  (u64)rs2, _, _, _) \
     X(bgeu, BRANCH, (u64)rs1 >= (u64)rs2, _, _, _) \
-    X(jalr, JUMP, (rs1 + (i64)imm) & ~(u64)1, _, _, _) \
-    X(jal,  JUMP, pc + (i64)imm,              _, _, _) \
+    X(jalr, JUMP, (rs1 + (i64)imm) & ~(u64)1, (rs1 + (i64)%ld) & ~(u64)1, _, _) \
+    X(jal,  JUMP, pc + (i64)imm,              pc + (i64)%ld,              _, _) \
     X(csrrc,  CSR, _, _, _, _) \
     X(csrrci, CSR, _, _, _, _) \
     X(csrrs,  CSR, _, _, _, _) \

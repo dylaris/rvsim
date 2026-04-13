@@ -36,7 +36,7 @@ static ResultVoid mem__load_segment(Memory *mem, ProgHeader *phdr, int fd)
 
     if (mmap((void *) aligned_vaddr, mem_size, mmap_prot,
              MAP_FIXED | MAP_PRIVATE, fd, ROUNDDOWN(offset, page_size)) == MAP_FAILED) {
-        return_defer(SYSERR_VOID("mmap"));
+        return__defer(SYSERR_VOID("mmap"));
     }
     mem__update_in_loading(mem, aligned_vaddr, mem_size);
 
@@ -44,7 +44,7 @@ static ResultVoid mem__load_segment(Memory *mem, ProgHeader *phdr, int fd)
     if (remaining_bss > 0) {
         if (mmap((void *) (aligned_vaddr + ROUNDUP(file_size, page_size)), remaining_bss,
                  mmap_prot, MAP_FIXED | MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) == MAP_FAILED) {
-            return_defer(SYSERR_VOID("mmap"));
+            return__defer(SYSERR_VOID("mmap"));
         }
     }
     mem__update_in_loading(mem, aligned_vaddr + ROUNDUP(file_size, page_size), remaining_bss);
@@ -60,15 +60,15 @@ ResultVoid mem_load_elf(Memory *mem, FILE *f)
 
     // Read ELF header
     if (fread((void *) &ehdr, sizeof(ELFHeader), 1, f) != 1)
-        return_defer(SYSERR_VOID("fread"));
+        return__defer(SYSERR_VOID("fread"));
 
     // Check magic number
     if (*(u32 *) &ehdr != *(u32 *) ELFMAG)
-        return_defer(SYSERR_VOID("bad elf file"));
+        return__defer(SYSERR_VOID("bad elf file"));
 
     // Check architecture
     if (ehdr.machine != EM_RISCV || ehdr.ident[EI_CLASS] != ELFCLASS64)
-        return_defer(SYSERR_VOID("only support riscv64 elf file"));
+        return__defer(SYSERR_VOID("only support riscv64 elf file"));
 
     // Set entry point
     mem->entry = (GuestVAddr) ehdr.entry;
@@ -77,11 +77,11 @@ ResultVoid mem_load_elf(Memory *mem, FILE *f)
     for (u64 i = 0; i < (u64) ehdr.phnum; i++) {
         u64 offset = ehdr.phoff + i * sizeof(ProgHeader);
         if (fseek(f, (long) offset, SEEK_SET) != 0)
-            return_defer(SYSERR_VOID("fseek"));
+            return__defer(SYSERR_VOID("fseek"));
 
         ProgHeader phdr;
         if (fread((void *) &phdr, sizeof(ProgHeader), 1, f) != 1)
-            return_defer(SYSERR_VOID("fread"));
+            return__defer(SYSERR_VOID("fread"));
 
         if (phdr.type == PT_LOAD) {
             res = mem__load_segment(mem, &phdr, fileno(f));
@@ -110,11 +110,11 @@ ResultVoid mem_load_bin(Memory *mem, FILE *f, GuestVAddr base)
     u64 mem_size = file_size + (aligned_vaddr - vaddr);
 
     if (mmap((void *) aligned_vaddr, mem_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_FIXED | MAP_PRIVATE, fileno(f), 0) == MAP_FAILED)
-        return_defer(SYSERR_VOID("mmap"));
+        return__defer(SYSERR_VOID("mmap"));
     mem__update_in_loading(mem, aligned_vaddr, mem_size);
 
     if (fread((void *) vaddr, 1, file_size, f) != file_size)
-        return_defer(SYSERR_VOID("fread"));
+        return__defer(SYSERR_VOID("fread"));
 defer:
     return res;
 }
@@ -126,21 +126,21 @@ Result(GuestVAddr) mem_alloc(Memory *mem, i64 size)
 
     GuestVAddr new_brk = mem->heap_brk + size;
     if (new_brk < mem->heap_base)
-        return_defer(ERR(GuestVAddr, SIM_ERR_NEW("mem_alloc", "heap underflow (brk < base)")));
+        return__defer(ERR(GuestVAddr, SIM_ERR_NEW("mem_alloc", "heap underflow (brk < base)")));
     mem->heap_brk = new_brk;
 
     if (size > 0) {
         if (mem->heap_brk > mem->heap_end) {
             if (mmap((void *) mem->host_end, ROUNDUP(size, page_size),
                      PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0) == MAP_FAILED)
-                return_defer(SYSERR(GuestVAddr, "mmap"));
+                return__defer(SYSERR(GuestVAddr, "mmap"));
             mem->host_end += ROUNDUP(size, page_size);
         }
     } else if (size < 0) {
         if (ROUNDUP(mem->heap_brk, page_size) < mem->heap_end) {
             u64 len = mem->heap_end - ROUNDUP(mem->heap_brk, page_size);
             if (munmap((void *) mem->host_end, len) == -1)
-                return_defer(SYSERR(GuestVAddr, "munmap"));
+                return__defer(SYSERR(GuestVAddr, "munmap"));
             mem->host_end -= len;
         }
     }

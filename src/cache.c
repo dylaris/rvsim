@@ -5,36 +5,53 @@
 #define sys_icache_invalidate(addr, size) \
   __builtin___clear_cache((char *)(addr), (char *)(addr) + (size));
 
-Cache cache_create(u64 capacity, u64 nentry)
+Cache cache_create(u64 capacity)
 {
     Cache cache = {
         .jitcode = (u8 *) mmap(NULL, capacity, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0),
-        .entry_lookup = hash_create(nentry),
-        .entries = NULL,
-        .end = 0,
+        .lookup = (CacheLookup) {0},
+        .offset = 0,
         .capacity = capacity,
     };
-    array_ensure(cache.entries, nentry);
     return cache;
 }
 
 void cache_destroy(Cache *cache)
 {
-    hash_destroy(&cache->entry_lookup);
-    array_free(cache->entries);
+    ht_free(&cache->lookup);
     munmap(cache->jitcode, cache->capacity);
 }
 
-u64 cache_lookup(Cache *cache, u64 pc)
+CacheEntry *cache_lookup(Cache *cache, u64 pc)
 {
-    u64 value = hash_get(&cache->entry_lookup, pc, -1ULL);
-    if (value == -1ULL) {
-        if (hash_factor(&cache->entry_lookup) >= HASH_LOAD_FACTOR)
-            hash_grow(&cache->entry_lookup, 2*cache->entry_lookup.capacity);
-        value = array_len(cache->entries);
-        hash_set(&cache->entry_lookup, pc, value);
-        array_push(cache->entries, (CacheEntry) { .pc = pc });
-    }
-    cache->entries[value].hot++;
-    return value;
+    CacheEntry *entry = ht_find(&cache->lookup, pc);
+    if (entry)
+        entry->hot++;
+    else
+        *ht_put(&cache->lookup, pc) = (CacheEntry) { .pc = pc, .hot = 1 };
+    return ht_find(&cache->lookup, pc);
+}
+
+static __ForceInline u64 align_to(u64 val, u64 align)
+{
+    if (align == 0)
+        return val;
+    return (val + align - 1) & ~(align - 1);
+}
+
+u8 *cache_add(Cache *cache, u64 pc, u8 *code, size_t sz, u64 align)
+{
+    cache->offset = align_to(cache->offset, align);
+    assert(cache->offset + sz <= CACHE_SIZE);
+
+    CacheEntry *entry = ht_find(&cache->lookup, pc);
+
+    memcpy(cache->jitcode + cache->offset, code, sz);
+    entry->pc = pc;
+    entry->offset = cache->offset;
+    entry->length = sz;
+    entry->code = cache->jitcode + entry->offset;
+    cache->offset += sz;
+    sys_icache_invalidate(entry->code, sz);
+    return entry->code;
 }

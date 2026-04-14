@@ -13,6 +13,10 @@ void interp_single(CPUState *state);
 void interp_block(CPUState *state);
 #endif
 
+#include "ht.h"
+typedef Ht(u64, u64) Record;
+extern Record record;
+
 /*
  * help functions below
  */

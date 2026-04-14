@@ -1,5 +1,0 @@
-1. maybe not use 'ht.h', because we just use pc as key, and pc is a unique key already
-2. how to handle the block links in codegen, if just let it free, it will generate a lot of codes, which may not a hot one, but block link is kind of important due to the overhead of calling clang.
-3. optimize the string handling in codegen, less function calls, like realloc, use static buffer may be better
-4. merge machine_resolve and machine_step for continuous execution.
-5. optimeze the code generation in each instruction to reduce the time clang consumes

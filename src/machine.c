@@ -150,23 +150,68 @@ defer:
     return res;
 }
 
-void machine_resolve(Machine *machine)
+// void machine_resolve(Machine *machine)
+// {
+// #ifdef DEBUG
+//     if (machine->single_step) {
+//         machine->engine = interp_single;
+//         return;
+//     }
+//     machine->engine = interp_block;
+// #else
+//     // machine->engine = interp_block;
+//
+//     CacheEntry *entry = cache_lookup(&machine->cache, cpu_get_pc(&machine->state));
+//     if (!entry->code && entry->hot >= CACHE_HOT_COUNT)
+//         entry->code = gen_code(machine);
+//     machine->engine = entry->code != NULL ? (BlockExec) entry->code : interp_block;
+// #endif
+// }
+
+void machine_step(Machine *machine)
 {
 #ifdef DEBUG
+
     if (machine->single_step) {
         machine->engine = interp_single;
         return;
     }
     machine->engine = interp_block;
-#else
-    // machine->engine = interp_block;
+    cpu_reset_flow_ctl(&machine->state);
+    machine->engine(machine);
 
-    CacheEntry *entry = cache_lookup(&machine->cache, cpu_get_pc(&machine->state));
-    if (!entry->code && entry->hot >= CACHE_HOT_COUNT)
-        entry->code = gen_code(machine);
-    machine->engine = entry->code != NULL ? (BlockExec) entry->code : interp_block;
+#else
+    while (true) {
+cache_lookup:
+        ;
+        CacheEntry *entry = cache_lookup(&machine->cache, cpu_get_pc(&machine->state));
+        if (!entry->code && entry->hot >= CACHE_HOT_COUNT)
+            entry->code = gen_code(machine);
+        machine->engine = entry->code != NULL ? (BlockExec) entry->code : interp_block;
+
+exec:
+        cpu_reset_flow_ctl(&machine->state);
+        machine->engine(&machine->state);
+
+        switch (cpu_get_flow_ctl(&machine->state)) {
+        case FLOW_BRANCH:
+        case FLOW_JUMP:
+            cpu_commit_pc(&machine->state);
+            goto cache_lookup;
+        case FLOW_SKIP_CODEGEN:
+            machine->engine = interp_block;
+            cpu_commit_pc(&machine->state);
+            goto exec;
+        case FLOW_ECALL:
+            return;
+        default:
+            unreachable();
+        }
+    }
+
 #endif
 }
+
 
 void machine_print(const Machine *machine)
 {
@@ -207,20 +252,6 @@ void machine_print(const Machine *machine)
     printf("T6:      0x%lx\n", cpu_get_gpr(&machine->state, GPR_T6));
     printf("==============\n");
     fflush(stdout);
-}
-
-void machine_step(Machine *machine)
-{
-    cpu_reset_flow_ctl(&machine->state);
-#ifdef DEBUG
-    machine->engine(machine);
-#else
-    machine->engine(&machine->state);
-#endif
-    assert(machine->state.gp_regs[GPR_ZERO] == 0);
-    // if (machine->engine != interp_block) {
-    //     asm("int3");
-    // }
 }
 
 Machine machine_create(void)

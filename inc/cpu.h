@@ -6,9 +6,10 @@
 #define TRAP_MASK (1 << 4)
 #define IS_TRAP(ctl) ((ctl) & TRAP_MASK)
 typedef enum {
-    FLOW_NONE   = 0,
-    FLOW_BRANCH = 1,
-    FLOW_JUMP   = 2,
+    FLOW_NONE           = 0,
+    FLOW_BRANCH         = 1,
+    FLOW_JUMP           = 2,
+    FLOW_SKIP_CODEGEN   = 3,
     FLOW_ECALL          = TRAP_MASK | 1,
     FLOW_ILLEGAL_INSTR  = TRAP_MASK | 2,
     FLOW_LOAD_MISALIGN  = TRAP_MASK | 3,

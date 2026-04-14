@@ -34,7 +34,6 @@ int main(int argc, char **argv)
 #endif
 
     while (true) {
-        machine_resolve(&machine);
         machine_step(&machine);
         if (IS_TRAP(cpu_get_flow_ctl(&machine.state)))
             machine_trap(&machine);

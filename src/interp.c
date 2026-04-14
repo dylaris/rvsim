@@ -246,6 +246,8 @@ void interp_single(CPUState *state)
     cpu_commit_pc(state);
 }
 
+Record record = {0};
+
 #ifdef DEBUG
 void interp_block(Machine *machine)
 {
@@ -285,8 +287,14 @@ void interp_block(CPUState *state)
         machine->skip_breakpoint = false;
 #endif
 
-        if (instr.cfc)
+        if (instr.cfc) {
+            u64 *count = ht_find(&record, pc);
+            if (count)
+                *count += 1;
+            else
+                *ht_put(&record, pc) = 1;
             break;
+        }
         cpu_commit_pc(state);
     }
 }

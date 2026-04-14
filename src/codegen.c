@@ -90,6 +90,25 @@ SIGNATURE(name) \
     XREG_SET_VAL(instr->rd, (i64) instr->imm); \
 }
 
+#define SMALL_BRANCH_RANGE 1024
+#define HOT_PATH_THRESHOLD (CACHE_HOT_COUNT / 10)
+
+extern Record record;
+
+static bool block_should_link(u64 pc, u64 target_addr)
+{
+    u64 range = pc > target_addr ? pc - target_addr : target_addr - pc;
+    if (range <= SMALL_BRANCH_RANGE)
+        return true;
+    u64 *count = ht_find(&record, target_addr);
+    if (count && *count >= HOT_PATH_THRESHOLD)
+        return true;
+    return false;
+}
+
+// block links in branch and jump
+#if 1
+
 #define GEN_BRANCH(name, expr, a2, a3, a4) \
 SIGNATURE(name) \
 { \
@@ -99,9 +118,13 @@ SIGNATURE(name) \
     sb_appendf(sb, "    if (%s) {\n", #expr); \
     FLOW_SET2_EXPR(ctl, FLOW_BRANCH); \
     FLOW_SET2_VAL(pc, target_addr); \
-    sb_appendf(sb, "        goto instr_%lx;\n", target_addr); \
+    if (block_should_link(pc, target_addr)) { \
+        da_append(stack, target_addr); \
+        sb_appendf(sb, "        goto instr_%lx;\n", target_addr); \
+    } else { \
+        sb_appendf(sb, "        goto end;\n"); \
+    } \
     sb_appendf(sb, "    }\n"); \
-    da_append(stack, target_addr); \
 }
 
 #define GEN_JUMP(name, a1, saddr, a3, a4) \
@@ -119,43 +142,51 @@ SIGNATURE(name) \
         GuestVAddr target_addr = pc + (i64) instr->imm; \
         FLOW_SET_EXPR(ctl, FLOW_JUMP); \
         FLOW_SET_VAL(pc, target_addr); \
-        sb_appendf(sb, "    goto instr_%lx;\n", target_addr); \
-        da_append(stack, target_addr); \
+        if (block_should_link(pc, target_addr)) { \
+            da_append(stack, target_addr); \
+            sb_appendf(sb, "    goto instr_%lx;\n", target_addr); \
+        } else { \
+            sb_appendf(sb, "    goto end;\n"); \
+        } \
     } \
     sb_appendf(sb, "}\n"); \
 }
 
-// #define GEN_BRANCH(name, expr, a2, a3, a4)
-// SIGNATURE(name)
-// {
-//     XREG_GET(instr->rs1, rs1);
-//     XREG_GET(instr->rs2, rs2);
-//     GuestVAddr target_addr = pc + (i64) instr->imm;
-//     sb_appendf(sb, "    if (%s) {\n", #expr);
-//     FLOW_SET2_EXPR(ctl, FLOW_BRANCH);
-//     FLOW_SET2_VAL(pc, target_addr);
-//     sb_appendf(sb, "        goto end;\n");
-//     sb_appendf(sb, "    }\n");
-// }
-//
-// #define GEN_JUMP(name, a1, saddr, a3, a4)
-// SIGNATURE(name)
-// {
-//     GuestVAddr return_addr = pc + (instr->rvc ? 2 : 4);
-//     XREG_SET_VAL(instr->rd, return_addr);
-//     XREG_GET(instr->rs1, rs1);
-//     if (instr->kind == instr_jalr)
-//         sb_appendf(sb, "    GuestVAddr target_addr = " #saddr ";\n", (i64) instr->imm);
-//         FLOW_SET_EXPR(ctl, FLOW_JUMP);
-//         FLOW_SET_EXPR(pc, target_addr);
-//     } else {
-//         GuestVAddr target_addr = pc + (i64) instr->imm;
-//         FLOW_SET_EXPR(ctl, FLOW_JUMP);
-//         FLOW_SET_VAL(pc, target_addr);
-//     }
-//     sb_appendf(sb, "    goto end;\n");
-//     sb_appendf(sb, "}\n");
-// }
+#else
+
+#define GEN_BRANCH(name, expr, a2, a3, a4) \
+SIGNATURE(name) \
+{ \
+    XREG_GET(instr->rs1, rs1); \
+    XREG_GET(instr->rs2, rs2); \
+    GuestVAddr target_addr = pc + (i64) instr->imm; \
+    sb_appendf(sb, "    if (%s) {\n", #expr); \
+    FLOW_SET2_EXPR(ctl, FLOW_BRANCH); \
+    FLOW_SET2_VAL(pc, target_addr); \
+    sb_appendf(sb, "        goto end;\n"); \
+    sb_appendf(sb, "    }\n"); \
+}
+
+#define GEN_JUMP(name, a1, saddr, a3, a4) \
+SIGNATURE(name) \
+{ \
+    GuestVAddr return_addr = pc + (instr->rvc ? 2 : 4); \
+    XREG_SET_VAL(instr->rd, return_addr); \
+    XREG_GET(instr->rs1, rs1); \
+    if (instr->kind == instr_jalr) { \
+        sb_appendf(sb, "    GuestVAddr target_addr = " #saddr ";\n", (i64) instr->imm); \
+        FLOW_SET_EXPR(ctl, FLOW_JUMP); \
+        FLOW_SET_EXPR(pc, target_addr); \
+    } else { \
+        GuestVAddr target_addr = pc + (i64) instr->imm; \
+        FLOW_SET_EXPR(ctl, FLOW_JUMP); \
+        FLOW_SET_VAL(pc, target_addr); \
+    } \
+    sb_appendf(sb, "    goto end;\n"); \
+    sb_appendf(sb, "}\n"); \
+}
+
+#endif
 
 #define GEN_ECALL(name, a1, a2, a3, a4) \
 SIGNATURE(name) \
@@ -228,6 +259,7 @@ SIGNATURE(name) \
     XREG_SET_EXPR(instr->rd, expr); \
 }
 
+// skip code generation for complicated instruction
 #if 1
 
 #define GEN_SKIP(name, a1, a2, a3, a4) \
@@ -335,7 +367,7 @@ u8 *gen_code(Machine *machine)
     sb_appendf(&sb, "#include \"cpu.h\"\n");
     sb_appendf(&sb, "#include \"mmu.h\"\n");
     sb_appendf(&sb, "#include \"memory.h\"\n");
-    sb_appendf(&sb, "#include \"interp.h\"\n");
+    // sb_appendf(&sb, "#include \"interp.h\"\n");
     sb_appendf(&sb, "void start(volatile CPUState *restrict state)\n{\n");
 
     da_append(&stack, cpu_get_pc(&machine->state));
@@ -485,4 +517,6 @@ u8 *compile(Machine *m, String_View sv)
 
     return (u8 *)text_addr;
 }
+
+// TODO: use multi-thread to generate code
 

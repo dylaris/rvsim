@@ -5,6 +5,7 @@
 #include "memory.h"
 #include "err.h"
 #include "cache.h"
+#include "thread_pool.h"
 #include "nob.h"
 
 // Store address
@@ -26,8 +27,8 @@ struct Machine {
     CPUState state;
     Memory mem;
     BlockExec engine;
-
-    Cache cache;
+    ThreadPool *pool;
+    Cache *cache;
 
     bool single_step;
     bool halt;

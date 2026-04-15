@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "ht.h"
+#include <pthread.h>
 
 #define CACHE_HOT_COUNT 10000
 
@@ -14,6 +15,7 @@ typedef struct {
     u8 *code;
     u64 offset;
     u64 length;
+    bool gen; // Generate code or not
 } CacheEntry;
 
 typedef Ht(u64, CacheEntry) CacheLookup;
@@ -23,9 +25,10 @@ typedef struct {
     u64 offset;
     CacheLookup lookup;
     u64 capacity;
+    pthread_mutex_t mutex;
 } Cache;
 
-Cache cache_create(u64 capacity);
+Cache *cache_create(u64 capacity);
 void cache_destroy(Cache *cache);
 CacheEntry *cache_lookup(Cache *cache, u64 pc);
 u8 *cache_add(Cache *cache, u64 pc, u8 *code, size_t sz, u64 align);

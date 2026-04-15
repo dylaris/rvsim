@@ -150,24 +150,6 @@ defer:
     return res;
 }
 
-// void machine_resolve(Machine *machine)
-// {
-// #ifdef DEBUG
-//     if (machine->single_step) {
-//         machine->engine = interp_single;
-//         return;
-//     }
-//     machine->engine = interp_block;
-// #else
-//     // machine->engine = interp_block;
-//
-//     CacheEntry *entry = cache_lookup(&machine->cache, cpu_get_pc(&machine->state));
-//     if (!entry->code && entry->hot >= CACHE_HOT_COUNT)
-//         entry->code = gen_code(machine);
-//     machine->engine = entry->code != NULL ? (BlockExec) entry->code : interp_block;
-// #endif
-// }
-
 void machine_step(Machine *machine)
 {
 #ifdef DEBUG
@@ -181,12 +163,19 @@ void machine_step(Machine *machine)
     machine->engine(machine);
 
 #else
+
     while (true) {
 cache_lookup:
         ;
-        CacheEntry *entry = cache_lookup(&machine->cache, cpu_get_pc(&machine->state));
-        if (!entry->code && entry->hot >= CACHE_HOT_COUNT)
-            entry->code = gen_code(machine);
+        CacheEntry *entry = cache_lookup(machine->cache, cpu_get_pc(&machine->state));
+        if (!entry->gen && entry->hot >= CACHE_HOT_COUNT) {
+            entry->gen = true;
+            Machine *temp_machine = malloc(sizeof(Machine));
+            assert(temp_machine && "run out of memory");
+            *temp_machine = (Machine) *machine;
+            thread_pool_add_task(machine->pool, gen_code, temp_machine);
+            // entry->code = gen_code(machine);
+        }
         machine->engine = entry->code != NULL ? (BlockExec) entry->code : interp_block;
 
 exec:
@@ -260,6 +249,7 @@ Machine machine_create(void)
         .state       = (CPUState) {0},
         .mem         = (Memory) {0},
         .engine      = NULL,
+        .pool        = thread_pool_create(MAX_THREAD_COUNT),
         .cache       = cache_create(CACHE_SIZE),
         .halt        = false,
         .single_step = false,
@@ -271,7 +261,8 @@ void machine_destroy(Machine *machine)
 {
     mem_clear(&machine->mem);
     da_free(machine->breakpoints);
-    cache_destroy(&machine->cache);
+    cache_destroy(machine->cache);
+    thread_pool_destroy(machine->pool);
 }
 
 void machine_add_breakpoint(Machine *machine, GuestVAddr breakpoint)

@@ -3,6 +3,8 @@
 
 #include "machine.h"
 
-u8 *gen_block(Machine *machine);
+// True Prototype: u8 *gen_block(Machine *machine);
+// This is for thread pool task callback
+void *gen_code(void *arg)
 
 #endif // CODEGEN_H

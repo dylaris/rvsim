@@ -1,3 +1,4 @@
+#include "thread_pool.c"
 #include "memory.c"
 #include "syscall.c"
 #include "decode.c"

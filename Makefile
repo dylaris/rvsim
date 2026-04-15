@@ -3,11 +3,11 @@ CC = clang
 ifeq ($(findstring debug,$(MAKECMDGOALS)),debug)
 OPT_CFLAGS =
 else
-OPT_CFLAGS = -O3
+OPT_CFLAGS = -O0
 endif
 
 CFLAGS   = -ggdb -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Iinc/ -I3rdparty/ $(OPT_CFLAGS)
-CLDFLAGS = -lm
+CLDFLAGS = -L3rdparty -lm -lpthread -l:libtcc.a
 
 EXE_CFLAGS  = $(CFLAGS)
 EXE_LDFLAGS = $(CLDFLAGS)

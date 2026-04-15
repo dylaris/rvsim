@@ -91,7 +91,7 @@ SIGNATURE(name) \
 }
 
 #define SMALL_BRANCH_RANGE 1024
-#define HOT_PATH_THRESHOLD (CACHE_HOT_COUNT / 10)
+#define HOT_PATH_THRESHOLD (CACHE_HOT_COUNT / 20)
 
 extern Record record;
 
@@ -351,23 +351,24 @@ typedef void (*CodeGenFunc)(String_Builder *, Instr *, Stack *, u64);
 static CodeGenFunc codegen_table[] = { INSTRUCTION_LIST(X) };
 #undef X
 
-#define BINBUF_CAP (1024 * 1024)
-static u8 elfbuf[BINBUF_CAP] = {0};
+u8 *compile(String_View sv);
 
-u8 *compile(Machine *machine, String_View sv);
+// static _Thread_local String_Builder sb = {0};
+// static _Thread_local Ht(u64, bool) ht = {0};
+// static _Thread_local Stack stack = {0};
 
-u8 *gen_code(Machine *machine)
+void *gen_code(void *arg)
 {
-    static String_Builder sb = {0};
-    static Ht(u64, bool) ht = {0};
-    static Stack stack = {0};
-    static Instr instr = {0};
+    Machine *machine = (Machine *) arg;
+
+    String_Builder sb = {0};
+    Ht(u64, bool) ht = {0};
+    Stack stack = {0};
 
     // prologue
     sb_appendf(&sb, "#include \"cpu.h\"\n");
     sb_appendf(&sb, "#include \"mmu.h\"\n");
     sb_appendf(&sb, "#include \"memory.h\"\n");
-    // sb_appendf(&sb, "#include \"interp.h\"\n");
     sb_appendf(&sb, "void start(volatile CPUState *restrict state)\n{\n");
 
     da_append(&stack, cpu_get_pc(&machine->state));
@@ -383,6 +384,7 @@ u8 *gen_code(Machine *machine)
         sb_appendf(&sb, "instr_%lx: {\n", pc);
 
         u32 raw = mem_read_u32(pc);
+        Instr instr = {0};
         assert(decode_instr(raw, &instr));
         if (instr.kind == instr_ebreak) {
             printf("[%lx] %s\n", pc, instr_to_string(&instr));
@@ -410,113 +412,160 @@ u8 *gen_code(Machine *machine)
     // fflush(stdout);
     // abort();
 
-    u8 *code = compile(machine, sv);
+    u8 *code = compile(sv);
+    CacheEntry *entry = cache_lookup(machine->cache, cpu_get_pc(&machine->state));
+    entry->code = code;
 
-    ht_reset(&ht);
-    stack.count = 0;
-    sb.count = 0;
+    // ht_reset(&ht);
+    // sb.count = 0;
+    // stack.count = 0;
+    ht_free(&ht);
+    sb_free(sb);
+    da_free(stack);
+    free(machine);
     return code;
 }
 
-u8 *compile(Machine *m, String_View sv)
+#define BINBUF_CAP (1024 * 1024)
+// static _Thread_local u8 elfbuf[BINBUF_CAP] = {0};
+
+#include "libtcc.h"
+
+u8 *compile(String_View sv)
 {
-    const char *source = sv.data;
-    size_t len = sv.count;
+    TCCState *s = tcc_new();
+    if (!s) fatal("cannot create tcc state");
 
-    int saved_stdout = dup(STDOUT_FILENO);
-    int outp[2];
+    tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
 
-    if (pipe(outp) != 0) fatal("cannot make a pipe");
-    dup2(outp[1], STDOUT_FILENO);
-    close(outp[1]);
+    tcc_add_include_path(s, "inc/");
 
-    FILE *f;
-    f = popen("clang -O3 -c -Iinc/ -xc -o /dev/stdout -", "w");
-    if (f == NULL) fatal("cannot compile program");
-    fwrite(source, 1, len, f);
-    pclose(f);
-    fflush(stdout);
-
-    (void) read(outp[0], elfbuf, BINBUF_CAP);
-    close(outp[0]);
-    dup2(saved_stdout, STDOUT_FILENO);
-    close(saved_stdout);
-
-    ELFHeader *ehdr = (ELFHeader *)elfbuf;
-
-    /**
-     * for some instructions, clang will generate a corresponding .rodata section.
-     * this means we need to write a mini-linker that puts the .rodata section into
-     * memory, takes its actual address, and uses symbols and relocations to apply
-     * it back to the corresponding location in the .text section.
-     */
-
-    i64 text_idx = 0, symtab_idx = 0, rela_idx = 0, rodata_idx = 0;
-    {
-        u64 shstr_shoff = ehdr->shoff + ehdr->shstrndx * sizeof(SecHeader);
-        SecHeader *shstr_shdr = (SecHeader *)(elfbuf + shstr_shoff);
-        assert(ehdr->shnum != 0);
-
-        for (i64 idx = 0; idx < ehdr->shnum; idx++) {
-            u64 shoff = ehdr->shoff + idx * sizeof(SecHeader);
-            SecHeader *shdr = (SecHeader *)(elfbuf + shoff);
-            char *str = (char *)(elfbuf + shstr_shdr->offset + shdr->name);
-            if (strcmp(str, ".text") == 0) text_idx = idx;
-            if (strcmp(str, ".rela.text") == 0) rela_idx = idx;
-            if (strncmp(str, ".rodata.", strlen(".rodata.")) == 0) rodata_idx = idx;
-            if (strcmp(str, ".symtab") == 0) symtab_idx = idx;
-        }
+    if (tcc_compile_string(s, sv.data) == -1) {
+        tcc_delete(s);
+        fatal("tcc compilation failed");
     }
 
-    assert(text_idx != 0 && symtab_idx != 0);
-
-    u64 text_shoff = ehdr->shoff + text_idx * sizeof(SecHeader);
-    SecHeader *text_shdr = (SecHeader *)(elfbuf + text_shoff);
-
-    if (rela_idx == 0 || rodata_idx == 0) {
-        return cache_add(&m->cache, m->state.pc, elfbuf + text_shdr->offset,
-                         text_shdr->size, text_shdr->addralign);
+    if (tcc_relocate(s) < 0) {
+        tcc_delete(s);
+        fatal("tcc relocate failed");
     }
 
-    u64 text_addr = 0, rodata_addr = 0;
-    {
-        u64 shoff = ehdr->shoff + rodata_idx * sizeof(SecHeader);
-        SecHeader *shdr = (SecHeader *)(elfbuf + shoff);
-        rodata_addr = (u64)cache_add(&m->cache, m->state.pc, elfbuf + shdr->offset,
-                  shdr->size, shdr->addralign);
-        text_addr = (u64)cache_add(&m->cache, m->state.pc, elfbuf + text_shdr->offset,
-                                   text_shdr->size, text_shdr->addralign);
+    void *sym = tcc_get_symbol(s, "start");
+    if (!sym) {
+        tcc_delete(s);
+        fatal("symbol 'start' not found in source");
     }
 
-    // apply relocations to .text section.
-    {
-        u64 shoff = ehdr->shoff + rela_idx * sizeof(SecHeader);
-        SecHeader *shdr = (SecHeader *)(elfbuf + shoff);
-        i64 rels = shdr->size / sizeof(Rela);
+    // tcc_delete(s);
 
-        u64 symtab_shoff = ehdr->shoff + symtab_idx * sizeof(SecHeader);
-        SecHeader *symtab_shdr = (SecHeader *)(elfbuf + symtab_shoff);
-
-        for (i64 idx = 0; idx < rels; idx++) {
-#ifndef __x86_64__
-            fatal("only support x86_64 for now");
-#endif
-            Rela *rel = (Rela *)(elfbuf + shdr->offset + idx * sizeof(Rela));
-            assert(rel->type == R_X86_64_PC32);
-
-            Sym *sym = (Sym *)(elfbuf + symtab_shdr->offset + rel->sym * sizeof(Sym));
-            u32 *loc = (u32 *)(text_addr + rel->offset);
-            u64 S = rodata_addr + sym->value; /* actual virtual address of symbol */
-            u64 P = text_addr + rel->offset; /* relocation address */
-            i64 A = rel->addend;
-            *loc = (u32)(S + A - P);
-            u64 rip_addr = P - A;
-            assert(rip_addr + *(i32 *)loc == S);
-        }
-    }
-
-    return (u8 *)text_addr;
+    return (u8 *) sym;
 }
+
+// u8 *compile(Machine *m, String_View sv)
+// {
+//     u8 *elfbuf = malloc(BINBUF_CAP);
+//     assert(elfbuf && "run out of memory");
+//
+//     const char *source = sv.data;
+//     size_t len = sv.count;
+//
+//     int saved_stdout = dup(STDOUT_FILENO);
+//     int outp[2];
+//
+//     if (pipe(outp) != 0) fatal("cannot make a pipe");
+//     dup2(outp[1], STDOUT_FILENO);
+//     close(outp[1]);
+//
+//     FILE *f;
+//     f = popen("clang -O3 -c -Iinc/ -xc -o /dev/stdout -", "w");
+//     if (f == NULL) fatal("cannot compile program");
+//     fwrite(source, 1, len, f);
+//     pclose(f);
+//     fflush(stdout);
+//
+//     (void) read(outp[0], elfbuf, BINBUF_CAP);
+//     close(outp[0]);
+//     dup2(saved_stdout, STDOUT_FILENO);
+//     close(saved_stdout);
+//
+//     ELFHeader *ehdr = (ELFHeader *)elfbuf;
+//
+//     /**
+//      * for some instructions, clang will generate a corresponding .rodata section.
+//      * this means we need to write a mini-linker that puts the .rodata section into
+//      * memory, takes its actual address, and uses symbols and relocations to apply
+//      * it back to the corresponding location in the .text section.
+//      */
+//
+//     i64 text_idx = 0, symtab_idx = 0, rela_idx = 0, rodata_idx = 0;
+//     {
+//         u64 shstr_shoff = ehdr->shoff + ehdr->shstrndx * sizeof(SecHeader);
+//         SecHeader *shstr_shdr = (SecHeader *)(elfbuf + shstr_shoff);
+//         assert(ehdr->shnum != 0);
+//
+//         for (i64 idx = 0; idx < ehdr->shnum; idx++) {
+//             u64 shoff = ehdr->shoff + idx * sizeof(SecHeader);
+//             SecHeader *shdr = (SecHeader *)(elfbuf + shoff);
+//             char *str = (char *)(elfbuf + shstr_shdr->offset + shdr->name);
+//             if (strcmp(str, ".text") == 0) text_idx = idx;
+//             if (strcmp(str, ".rela.text") == 0) rela_idx = idx;
+//             if (strncmp(str, ".rodata.", strlen(".rodata.")) == 0) rodata_idx = idx;
+//             if (strcmp(str, ".symtab") == 0) symtab_idx = idx;
+//         }
+//     }
+//
+//     assert(text_idx != 0 && symtab_idx != 0);
+//
+//     u64 text_shoff = ehdr->shoff + text_idx * sizeof(SecHeader);
+//     SecHeader *text_shdr = (SecHeader *)(elfbuf + text_shoff);
+//
+//     if (rela_idx == 0 || rodata_idx == 0) {
+//         u8 *code = cache_add(m->cache, m->state.pc, elfbuf + text_shdr->offset,
+//                          text_shdr->size, text_shdr->addralign);
+//         free(elfbuf);
+//         return code;
+//     }
+//
+//     u64 text_addr = 0, rodata_addr = 0;
+//     {
+//         u64 shoff = ehdr->shoff + rodata_idx * sizeof(SecHeader);
+//         SecHeader *shdr = (SecHeader *)(elfbuf + shoff);
+//         rodata_addr = (u64)cache_add(m->cache, m->state.pc, elfbuf + shdr->offset,
+//                   shdr->size, shdr->addralign);
+//         text_addr = (u64)cache_add(m->cache, m->state.pc, elfbuf + text_shdr->offset,
+//                                    text_shdr->size, text_shdr->addralign);
+//     }
+//
+//     // apply relocations to .text section.
+//     {
+//         u64 shoff = ehdr->shoff + rela_idx * sizeof(SecHeader);
+//         SecHeader *shdr = (SecHeader *)(elfbuf + shoff);
+//         i64 rels = shdr->size / sizeof(Rela);
+//
+//         u64 symtab_shoff = ehdr->shoff + symtab_idx * sizeof(SecHeader);
+//         SecHeader *symtab_shdr = (SecHeader *)(elfbuf + symtab_shoff);
+//
+//         for (i64 idx = 0; idx < rels; idx++) {
+// #ifndef __x86_64__
+//             fatal("only support x86_64 for now");
+// #endif
+//             Rela *rel = (Rela *)(elfbuf + shdr->offset + idx * sizeof(Rela));
+//             assert(rel->type == R_X86_64_PC32);
+//
+//             Sym *sym = (Sym *)(elfbuf + symtab_shdr->offset + rel->sym * sizeof(Sym));
+//             u32 *loc = (u32 *)(text_addr + rel->offset);
+//             u64 S = rodata_addr + sym->value; /* actual virtual address of symbol */
+//             u64 P = text_addr + rel->offset; /* relocation address */
+//             i64 A = rel->addend;
+//             *loc = (u32)(S + A - P);
+//             u64 rip_addr = P - A;
+//             assert(rip_addr + *(i32 *)loc == S);
+//         }
+//     }
+//
+//     free(elfbuf);
+//     return (u8 *)text_addr;
+// }
 
 // TODO: use multi-thread to generate code
 

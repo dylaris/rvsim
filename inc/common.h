@@ -24,16 +24,12 @@ typedef double   f64;
 
 #define ROUNDDOWN(x, k) ((x) & -(k))
 #define ROUNDUP(x, k)   (((x) + (k) - 1) & -(k))
-#define MIN(a, b)       (a) < (b) ? (a) : (b)
-#define MAX(a, b)       (a) < (b) ? (b) : (a)
+#define MIN(a, b)       ((a) < (b) ? (a) : (b))
+#define MAX(a, b)       ((a) < (b) ? (b) : (a))
 
-#define ARRAY_SIZE(arr) (sizeof(arr)/sizeof(arr[0]))
-
-#define _
 #define __Keep          __attribute__((used))
 #define __Unused        __attribute__((unused))
-// #define __ForceInline   __attribute__((always_inline))
-#define __ForceInline
+#define __ForceInline   __attribute__((always_inline))
 
 #define KB(n) ((n) * (1ULL << 10))
 #define MB(n) ((n) * (1ULL << 20))
@@ -41,5 +37,11 @@ typedef double   f64;
 
 #define likely(x)    __builtin_expect(!!(x), 1)
 #define unlikely(x)  __builtin_expect(!!(x), 0)
+
+typedef struct {
+    u64 *items;
+    size_t count;
+    size_t capacity;
+} Stack;
 
 #endif // COMMON_H

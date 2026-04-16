@@ -222,7 +222,7 @@ static SyscallFunc syscall_table[] = {
 u64 do_syscall(Machine *machine)
 {
     SyscallNr n = (SyscallNr) cpu_get_gpr(&machine->state, GPR_A7);
-    assert(n < ARRAY_SIZE(syscall_table));
+    assert(n < ARRAY_LEN(syscall_table));
     SyscallFunc f = syscall_table[n];
     if (!f)
         fatalf("unknown syscall number: %d", n);

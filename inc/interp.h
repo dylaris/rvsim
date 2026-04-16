@@ -3,19 +3,9 @@
 
 #include <math.h>
 
-#ifdef DEBUG
 #include "machine.h"
 void interp_single(Machine *machine);
 void interp_block(Machine *machine);
-#else
-#include "cpu.h"
-void interp_single(CPUState *state);
-void interp_block(CPUState *state);
-#endif
-
-#include "ht.h"
-typedef Ht(u64, u64) Record;
-extern Record record;
 
 /*
  * help functions below

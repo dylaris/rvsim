@@ -5,23 +5,14 @@ int main(int argc, char **argv)
     if (argc < 2)
         fatalf("Usage: %s <program>", argv[0]);
 
-    ResultVoid res = OK_VOID;
     Machine machine = machine_create();
 
 #ifdef TEST
-    res = machine_load_bin(&machine, argv[1], 0x80002000);
-    if (!res.ok)
-        goto defer;
-    res = machine_init_stack_bin(&machine, KB(64));
-    if (!res.ok)
-        goto defer;
+    machine_load_bin(&machine, argv[1], 0x80002000);
+    machine_init_stack_bin(&machine, KB(64));
 #else
-    res = machine_load_elf(&machine, argv[1]);
-    if (!res.ok)
-        goto defer;
-    res = machine_init_stack_elf(&machine, MB(32), argc-1, argv+1);
-    if (!res.ok)
-        goto defer;
+    machine_load_elf(&machine, argv[1]);
+    machine_init_stack_elf(&machine, MB(32), argc-1, argv+1);
 #endif
 
 #if DEBUG
@@ -40,9 +31,6 @@ int main(int argc, char **argv)
         cpu_commit_pc(&machine.state);
     }
 
-defer:
-    if (!res.ok)
-        sim_err_print(res.err);
     machine_destroy(&machine);
     return 0;
 }

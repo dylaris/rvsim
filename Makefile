@@ -3,7 +3,7 @@ CC = clang
 ifeq ($(findstring debug,$(MAKECMDGOALS)),debug)
 OPT_CFLAGS =
 else
-OPT_CFLAGS = -O0
+OPT_CFLAGS = -O3
 endif
 
 CFLAGS   = -ggdb -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -Iinc/ -I3rdparty/ $(OPT_CFLAGS)

@@ -1,5 +1,6 @@
 #include "instr_template.h"
-#include "machine.h"
+#include "codegen.h"
+#include "libtcc.h"
 
 #define FLOW_SET_EXPR(field, expr) \
     sb_appendf(sb, "    cpu_set_flow_%s(state, %s);\n", #field, #expr)
@@ -12,22 +13,18 @@
 
 #define XREG_SET_VAL(reg, val) \
     sb_appendf(sb, "    cpu_set_gpr(state, %d, %luULL);\n", (reg), (u64) val)
-
 #define XREG_SET_EXPR(reg, expr) \
     sb_appendf(sb, "    cpu_set_gpr(state, %d, %s);\n", (reg), #expr)
-
 #define XREG_GET(reg, name) \
     sb_appendf(sb, "    u64 %s = cpu_get_gpr(state, %d);\n", #name, (reg))
 
 #define FREG_SET_EXPR(reg, expr, view) \
     sb_appendf(sb, "    cpu_set_fpr_%s(state, %d, %s);\n", #view, (reg), #expr)
-
 #define FREG_GET(reg, name, type, view) \
     sb_appendf(sb, "    %s %s = cpu_get_fpr_%s(state, %d);\n", #type, #name, #view, (reg))
 
 #define MEM_READ(addr, type, name) \
     sb_appendf(sb, "    %s %s = mem_read_%s(%s);\n", #type, #name, #type, #addr)
-
 #define MEM_WRITE(addr, type, data) \
     sb_appendf(sb, "    mem_write_%s(%s, (%s) %s);\n", #type, #addr, #type, #data)
 
@@ -90,23 +87,7 @@ SIGNATURE(name) \
     XREG_SET_VAL(instr->rd, (i64) instr->imm); \
 }
 
-#define SMALL_BRANCH_RANGE 1024
-#define HOT_PATH_THRESHOLD (CACHE_HOT_COUNT / 20)
-
-extern Record record;
-
-static bool block_should_link(u64 pc, u64 target_addr)
-{
-    u64 range = pc > target_addr ? pc - target_addr : target_addr - pc;
-    if (range <= SMALL_BRANCH_RANGE)
-        return true;
-    u64 *count = ht_find(&record, target_addr);
-    if (count && *count >= HOT_PATH_THRESHOLD)
-        return true;
-    return false;
-}
-
-// block links in branch and jump
+// Block links in branch and jump
 #if 1
 
 #define GEN_BRANCH(name, expr, a2, a3, a4) \
@@ -233,7 +214,6 @@ SIGNATURE(name) \
     MEM_WRITE(addr, type, src); \
 }
 
-
 #define GEN_FP_FMA4(name, view, type, expr, a4) \
 SIGNATURE(name) \
 { \
@@ -259,7 +239,7 @@ SIGNATURE(name) \
     XREG_SET_EXPR(instr->rd, expr); \
 }
 
-// skip code generation for complicated instruction
+// Skip code generation for complicated instruction
 #if 1
 
 #define GEN_SKIP(name, a1, a2, a3, a4) \
@@ -351,87 +331,7 @@ typedef void (*CodeGenFunc)(String_Builder *, Instr *, Stack *, u64);
 static CodeGenFunc codegen_table[] = { INSTRUCTION_LIST(X) };
 #undef X
 
-u8 *compile(String_View sv);
-
-// static _Thread_local String_Builder sb = {0};
-// static _Thread_local Ht(u64, bool) ht = {0};
-// static _Thread_local Stack stack = {0};
-
-void *gen_code(void *arg)
-{
-    Machine *machine = (Machine *) arg;
-
-    String_Builder sb = {0};
-    Ht(u64, bool) ht = {0};
-    Stack stack = {0};
-
-    // prologue
-    sb_appendf(&sb, "#include \"cpu.h\"\n");
-    sb_appendf(&sb, "#include \"mmu.h\"\n");
-    sb_appendf(&sb, "#include \"memory.h\"\n");
-    sb_appendf(&sb, "void start(volatile CPUState *restrict state)\n{\n");
-
-    da_append(&stack, cpu_get_pc(&machine->state));
-
-    while (stack.count) {
-        u64 pc = da_pop(&stack);
-        bool *exist = ht_find(&ht, pc);
-        if (exist)
-            continue;
-        else
-            *ht_put(&ht, pc) = true;
-
-        sb_appendf(&sb, "instr_%lx: {\n", pc);
-
-        u32 raw = mem_read_u32(pc);
-        Instr instr = {0};
-        assert(decode_instr(raw, &instr));
-        if (instr.kind == instr_ebreak) {
-            printf("[%lx] %s\n", pc, instr_to_string(&instr));
-            abort();
-        }
-        codegen_table[instr.kind](&sb, &instr, &stack, pc);
-
-        if (instr.cfc)
-            continue;
-
-        pc += (instr.rvc ? 2 : 4);
-        da_append(&stack, pc);
-
-        sb_appendf(&sb, "    goto instr_%lx;\n}\n", pc);
-    }
-
-    sb_appendf(&sb, "end:\n    ;\n}\n");
-
-    String_View sv = {
-        .data = sb.items,
-        .count = sb.count,
-    };
-
-    // printf(SV_Fmt, SV_Arg(sv));
-    // fflush(stdout);
-    // abort();
-
-    u8 *code = compile(sv);
-    CacheEntry *entry = cache_lookup(machine->cache, cpu_get_pc(&machine->state));
-    entry->code = code;
-
-    // ht_reset(&ht);
-    // sb.count = 0;
-    // stack.count = 0;
-    ht_free(&ht);
-    sb_free(sb);
-    da_free(stack);
-    free(machine);
-    return code;
-}
-
-#define BINBUF_CAP (1024 * 1024)
-// static _Thread_local u8 elfbuf[BINBUF_CAP] = {0};
-
-#include "libtcc.h"
-
-u8 *compile(String_View sv)
+static TCCState *compile(const char *source)
 {
     TCCState *s = tcc_new();
     if (!s) fatal("cannot create tcc state");
@@ -440,7 +340,7 @@ u8 *compile(String_View sv)
 
     tcc_add_include_path(s, "inc/");
 
-    if (tcc_compile_string(s, sv.data) == -1) {
+    if (tcc_compile_string(s, source) == -1) {
         tcc_delete(s);
         fatal("tcc compilation failed");
     }
@@ -450,122 +350,84 @@ u8 *compile(String_View sv)
         fatal("tcc relocate failed");
     }
 
-    void *sym = tcc_get_symbol(s, "start");
-    if (!sym) {
-        tcc_delete(s);
-        fatal("symbol 'start' not found in source");
-    }
-
-    // tcc_delete(s);
-
-    return (u8 *) sym;
+    return s;
 }
 
-// u8 *compile(Machine *m, String_View sv)
-// {
-//     u8 *elfbuf = malloc(BINBUF_CAP);
-//     assert(elfbuf && "run out of memory");
-//
-//     const char *source = sv.data;
-//     size_t len = sv.count;
-//
-//     int saved_stdout = dup(STDOUT_FILENO);
-//     int outp[2];
-//
-//     if (pipe(outp) != 0) fatal("cannot make a pipe");
-//     dup2(outp[1], STDOUT_FILENO);
-//     close(outp[1]);
-//
-//     FILE *f;
-//     f = popen("clang -O3 -c -Iinc/ -xc -o /dev/stdout -", "w");
-//     if (f == NULL) fatal("cannot compile program");
-//     fwrite(source, 1, len, f);
-//     pclose(f);
-//     fflush(stdout);
-//
-//     (void) read(outp[0], elfbuf, BINBUF_CAP);
-//     close(outp[0]);
-//     dup2(saved_stdout, STDOUT_FILENO);
-//     close(saved_stdout);
-//
-//     ELFHeader *ehdr = (ELFHeader *)elfbuf;
-//
-//     /**
-//      * for some instructions, clang will generate a corresponding .rodata section.
-//      * this means we need to write a mini-linker that puts the .rodata section into
-//      * memory, takes its actual address, and uses symbols and relocations to apply
-//      * it back to the corresponding location in the .text section.
-//      */
-//
-//     i64 text_idx = 0, symtab_idx = 0, rela_idx = 0, rodata_idx = 0;
-//     {
-//         u64 shstr_shoff = ehdr->shoff + ehdr->shstrndx * sizeof(SecHeader);
-//         SecHeader *shstr_shdr = (SecHeader *)(elfbuf + shstr_shoff);
-//         assert(ehdr->shnum != 0);
-//
-//         for (i64 idx = 0; idx < ehdr->shnum; idx++) {
-//             u64 shoff = ehdr->shoff + idx * sizeof(SecHeader);
-//             SecHeader *shdr = (SecHeader *)(elfbuf + shoff);
-//             char *str = (char *)(elfbuf + shstr_shdr->offset + shdr->name);
-//             if (strcmp(str, ".text") == 0) text_idx = idx;
-//             if (strcmp(str, ".rela.text") == 0) rela_idx = idx;
-//             if (strncmp(str, ".rodata.", strlen(".rodata.")) == 0) rodata_idx = idx;
-//             if (strcmp(str, ".symtab") == 0) symtab_idx = idx;
-//         }
-//     }
-//
-//     assert(text_idx != 0 && symtab_idx != 0);
-//
-//     u64 text_shoff = ehdr->shoff + text_idx * sizeof(SecHeader);
-//     SecHeader *text_shdr = (SecHeader *)(elfbuf + text_shoff);
-//
-//     if (rela_idx == 0 || rodata_idx == 0) {
-//         u8 *code = cache_add(m->cache, m->state.pc, elfbuf + text_shdr->offset,
-//                          text_shdr->size, text_shdr->addralign);
-//         free(elfbuf);
-//         return code;
-//     }
-//
-//     u64 text_addr = 0, rodata_addr = 0;
-//     {
-//         u64 shoff = ehdr->shoff + rodata_idx * sizeof(SecHeader);
-//         SecHeader *shdr = (SecHeader *)(elfbuf + shoff);
-//         rodata_addr = (u64)cache_add(m->cache, m->state.pc, elfbuf + shdr->offset,
-//                   shdr->size, shdr->addralign);
-//         text_addr = (u64)cache_add(m->cache, m->state.pc, elfbuf + text_shdr->offset,
-//                                    text_shdr->size, text_shdr->addralign);
-//     }
-//
-//     // apply relocations to .text section.
-//     {
-//         u64 shoff = ehdr->shoff + rela_idx * sizeof(SecHeader);
-//         SecHeader *shdr = (SecHeader *)(elfbuf + shoff);
-//         i64 rels = shdr->size / sizeof(Rela);
-//
-//         u64 symtab_shoff = ehdr->shoff + symtab_idx * sizeof(SecHeader);
-//         SecHeader *symtab_shdr = (SecHeader *)(elfbuf + symtab_shoff);
-//
-//         for (i64 idx = 0; idx < rels; idx++) {
-// #ifndef __x86_64__
-//             fatal("only support x86_64 for now");
-// #endif
-//             Rela *rel = (Rela *)(elfbuf + shdr->offset + idx * sizeof(Rela));
-//             assert(rel->type == R_X86_64_PC32);
-//
-//             Sym *sym = (Sym *)(elfbuf + symtab_shdr->offset + rel->sym * sizeof(Sym));
-//             u32 *loc = (u32 *)(text_addr + rel->offset);
-//             u64 S = rodata_addr + sym->value; /* actual virtual address of symbol */
-//             u64 P = text_addr + rel->offset; /* relocation address */
-//             i64 A = rel->addend;
-//             *loc = (u32)(S + A - P);
-//             u64 rip_addr = P - A;
-//             assert(rip_addr + *(i32 *)loc == S);
-//         }
-//     }
-//
-//     free(elfbuf);
-//     return (u8 *)text_addr;
-// }
+#define CODEGEN_PROLOGUE                                 \
+    "#include \"cpu.h\"                              \n" \
+    "#include \"mmu.h\"                              \n" \
+    "#include \"memory.h\"                           \n" \
+    "void start(volatile CPUState *restrict state) { \n" \
 
-// TODO: use multi-thread to generate code
+#define CODEGEN_EPILOGUE  \
+    "end:             \n" \
+    "}                \n" \
+    "void end(void) {}\n"
 
+void *gencode(CodeGenerator *cg, TBCache *cache, u64 start_pc)
+{
+    Stack *links = &cg->links;
+    Set *set = &cg->set;
+    String_Builder *sb = &cg->sb;
+
+    sb_appendf(sb, CODEGEN_PROLOGUE);
+
+    da_append(links, start_pc);
+
+    while (cg->links.count) {
+        u64 pc = da_pop(links);
+        bool *exist = ht_find(set, pc);
+        if (exist) continue;
+        else *ht_put(set, pc) = true;
+
+        sb_appendf(sb, "instr_%lx: {\n", pc);
+
+        Instr instr = {0};
+        u32 raw = mem_read_u32(pc);
+        assert(decode_instr(raw, &instr));
+
+        codegen_table[instr.kind](sb, &instr, links, pc);
+
+        if (instr.cfc) continue;
+        pc += (instr.rvc ? 2 : 4);
+
+        da_append(links, pc);
+
+        sb_appendf(sb, "    goto instr_%lx;\n}\n", pc);
+    }
+
+    sb_appendf(sb, CODEGEN_EPILOGUE);
+
+    TCCState *s = compile(sb->items);
+    void *start = tcc_get_symbol(s, "start");
+    void *end = tcc_get_symbol(s, "end");
+    if (!start || !end) {
+        tcc_delete(s);
+        fatal("symbol 'start' or 'end' not found in source");
+    }
+
+    size_t length = (char *) end - (char *) start;
+    void *code = tbcache_add(cache, start, length);
+
+    ht_reset(set);
+    sb->count = 0;
+    links->count = 0;
+    tcc_delete(s);
+
+    return code;
+}
+
+CodeGenerator *codegen_create(void)
+{
+    CodeGenerator *cg = malloc(sizeof(CodeGenerator));
+    assert(cg && "run out of memory");
+    memset(cg, 0, sizeof(CodeGenerator));
+    return cg;
+}
+
+void codegen_destroy(CodeGenerator *cg)
+{
+    sb_free(cg->sb);
+    da_free(cg->links);
+    ht_free(&cg->set);
+}

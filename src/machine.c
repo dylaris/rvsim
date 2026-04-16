@@ -1,64 +1,35 @@
 #include "machine.h"
 #include "syscall.h"
 
-ResultVoid machine_load_bin(Machine *machine, const char *prog, GuestVAddr base)
+void machine_load_bin(Machine *machine, const char *prog, GuestVAddr base)
 {
-    ResultVoid res = OK_VOID;
-    FILE *f = NULL;
+    FILE *f = fopen(prog, "rb");
+    if (!f) fatalf("fopen: %s", strerror(errno));
 
-    f = fopen(prog, "rb");
-    if (!f)
-        return__defer(SYSERR_VOID("fopen"));
-
-    res = mem_load_bin(&machine->mem, f, base);
-    if (!res.ok)
-        goto defer;
+    mem_load_bin(&machine->mem, f, base);
 
     cpu_set_pc(&machine->state, machine->mem.entry);
     cpu_set_flow_pc(&machine->state, machine->mem.entry);
 
-defer:
-    if (f)
-        fclose(f);
-    if (!res.ok)
-        mem_clear(&machine->mem);
-    return res;
+    fclose(f);
 }
 
-ResultVoid machine_load_elf(Machine *machine, const char *prog)
+void machine_load_elf(Machine *machine, const char *prog)
 {
-    ResultVoid res = OK_VOID;
-    FILE *f = NULL;
+    FILE *f = fopen(prog, "rb");
+    if (!f) fatalf("fopen: %s", strerror(errno));
 
-    f = fopen(prog, "rb");
-    if (!f)
-        return__defer(SYSERR_VOID("fopen"));
-
-    res = mem_load_elf(&machine->mem, f);
-    if (!res.ok)
-        goto defer;
+    mem_load_elf(&machine->mem, f);
 
     cpu_set_pc(&machine->state, machine->mem.entry);
     cpu_set_flow_pc(&machine->state, machine->mem.entry);
 
-defer:
-    if (f)
-        fclose(f);
-    if (!res.ok)
-        mem_clear(&machine->mem);
-    return res;
+    fclose(f);
 }
 
-ResultVoid machine_init_stack_elf(Machine *machine, u64 stack_size, int argc, char **argv)
+void machine_init_stack_elf(Machine *machine, u64 stack_size, int argc, char **argv)
 {
-    ResultVoid res = OK_VOID;
-    Result(GuestVAddr) vres = OK(GuestVAddr, 0);
-
-    vres = mem_alloc(&machine->mem, stack_size);
-    if (!vres.ok)
-        return__defer(ERR_VOID(vres.err));
-
-    GuestVAddr stack_base = vres.value;
+    GuestVAddr stack_base = mem_alloc(&machine->mem, stack_size);
     GuestVAddr stack_end  = stack_base + stack_size;
 
     cpu_set_gpr(&machine->state, GPR_SP, stack_end);
@@ -74,10 +45,7 @@ ResultVoid machine_init_stack_elf(Machine *machine, u64 stack_size, int argc, ch
 
     for (int i = argc - 1; i >= 0; i--) {
         size_t len = strlen(argv[i]);
-        vres = mem_alloc(&machine->mem, len + 1);
-        if (!vres.ok)
-            return__defer(ERR_VOID(vres.err));
-        GuestVAddr addr = vres.value;
+        GuestVAddr addr = mem_alloc(&machine->mem, len + 1);
         mem_write(addr, (void *) argv[i], len);
 
         stack_end -= 8; // argv[i]
@@ -88,31 +56,17 @@ ResultVoid machine_init_stack_elf(Machine *machine, u64 stack_size, int argc, ch
     stack_end -= 8; // argc
     cpu_set_gpr(&machine->state, GPR_SP, stack_end);
     mem_write(stack_end, (void *) &argc, sizeof(argc));
-
-defer:
-    return res;
 }
 
-ResultVoid machine_init_stack_bin(Machine *machine, u64 stack_size)
+void machine_init_stack_bin(Machine *machine, u64 stack_size)
 {
-    ResultVoid res = OK_VOID;
-    Result(GuestVAddr) vres = OK(GuestVAddr, 0);
-
-    vres = mem_alloc(&machine->mem, stack_size);
-    if (!vres.ok)
-        return__defer(ERR_VOID(vres.err));
-
-    GuestVAddr stack_base = vres.value;
+    GuestVAddr stack_base = mem_alloc(&machine->mem, stack_size);
     GuestVAddr stack_end  = stack_base + stack_size;
     cpu_set_gpr(&machine->state, GPR_SP, stack_end);
-
-defer:
-    return res;
 }
 
-ResultVoid machine_trap(Machine *machine)
+void machine_trap(Machine *machine)
 {
-    ResultVoid res = OK_VOID;
     u64 pc = cpu_get_pc(&machine->state);
 
     switch (machine->state.flow.ctl) {
@@ -121,18 +75,18 @@ ResultVoid machine_trap(Machine *machine)
         break;
 
     case FLOW_ILLEGAL_INSTR:
-        return__defer(ERR_VOID(SIM_ERR_NEWF("machine_trap", "illegal instruction '0x%08x' @ 0x%016lx", mem_read_u32(pc), pc)));
+        fatalf("illegal instruction '0x%08x' @ 0x%016lx", mem_read_u32(pc), pc);
 
     case FLOW_LOAD_FAULT:
     case FLOW_STORE_FAULT:
-        return__defer(ERR_VOID(SIM_ERR_NEWF("machine_trap", "memory access fault @ 0x%016lx", pc)));
+        fatalf("memory access fault @ 0x%016lx", pc);
 
     case FLOW_LOAD_MISALIGN:
     case FLOW_STORE_MISALIGN:
-        return__defer(ERR_VOID(SIM_ERR_NEWF("machine_trap", "memory align fault @ 0x%016lx", pc)));
+        fatalf("memory align fault @ 0x%016lx", pc);
 
     case FLOW_CRASH:
-        return__defer(ERR_VOID(SIM_ERR_NEWF("machine_trap", "this simulator crashed: %s", strerror(errno))));
+        fatalf("this simulator crashed: %s", strerror(errno));
 
     case FLOW_HALT:
         machine->skip_breakpoint = false;
@@ -145,9 +99,6 @@ ResultVoid machine_trap(Machine *machine)
     default:
         unreachable();
     }
-
-defer:
-    return res;
 }
 
 void machine_step(Machine *machine)
@@ -165,28 +116,34 @@ void machine_step(Machine *machine)
 #else
 
     while (true) {
-cache_lookup:
+lookup:
         ;
-        CacheEntry *entry = cache_lookup(machine->cache, cpu_get_pc(&machine->state));
-        if (!entry->gen && entry->hot >= CACHE_HOT_COUNT) {
-            entry->gen = true;
-            Machine *temp_machine = malloc(sizeof(Machine));
-            assert(temp_machine && "run out of memory");
-            *temp_machine = (Machine) *machine;
-            thread_pool_add_task(machine->pool, gen_code, temp_machine);
-            // entry->code = gen_code(machine);
+        u64 pc = cpu_get_pc(&machine->state);
+        u64 hit_count = bb_hit(pc);
+
+        DBCacheEntry *dbentry = dbcache_lookup(machine->dbcache, pc);
+        if (!dbentry && hit_count >= DBCACHE_HOT_COUNT) {
+            dbentry = dbcache_add(machine->dbcache, pc);
         }
-        machine->engine = entry->code != NULL ? (BlockExec) entry->code : interp_block;
+        machine->dbcache->last_accessed = dbentry;
+
+        TBCacheEntry *tbentry = tbcache_lookup(machine->tbcache, pc);
+        if (!tbentry->code && hit_count >= TBCACHE_HOT_COUNT) {
+            tbentry->code = gencode(machine->codegen, machine->tbcache, pc);
+        }
+        machine->engine = tbentry->code != NULL ? (BlockExec) tbentry->code : interp_block;
 
 exec:
         cpu_reset_flow_ctl(&machine->state);
-        machine->engine(&machine->state);
+        machine->engine(machine);
+        assert(cpu_get_flow_ctl(&machine->state) != FLOW_NONE);
+        machine->dbcache->last_accessed = NULL;
 
         switch (cpu_get_flow_ctl(&machine->state)) {
         case FLOW_BRANCH:
         case FLOW_JUMP:
             cpu_commit_pc(&machine->state);
-            goto cache_lookup;
+            goto lookup;
         case FLOW_SKIP_CODEGEN:
             machine->engine = interp_block;
             cpu_commit_pc(&machine->state);
@@ -194,6 +151,7 @@ exec:
         case FLOW_ECALL:
             return;
         default:
+            printf("%d\n", cpu_get_flow_ctl(&machine->state));
             unreachable();
         }
     }
@@ -249,8 +207,9 @@ Machine machine_create(void)
         .state       = (CPUState) {0},
         .mem         = (Memory) {0},
         .engine      = NULL,
-        .pool        = thread_pool_create(MAX_THREAD_COUNT),
-        .cache       = cache_create(CACHE_SIZE),
+        .tbcache     = tbcache_create(16),
+        .dbcache     = dbcache_create(KB(1)),
+        .codegen     = codegen_create(),
         .halt        = false,
         .single_step = false,
         .breakpoints = {0},
@@ -259,10 +218,11 @@ Machine machine_create(void)
 
 void machine_destroy(Machine *machine)
 {
-    mem_clear(&machine->mem);
+    mem_free(&machine->mem);
     da_free(machine->breakpoints);
-    cache_destroy(machine->cache);
-    thread_pool_destroy(machine->pool);
+    codegen_destroy(machine->codegen);
+    tbcache_destroy(machine->tbcache);
+    dbcache_destroy(machine->dbcache);
 }
 
 void machine_add_breakpoint(Machine *machine, GuestVAddr breakpoint)
@@ -273,10 +233,10 @@ void machine_add_breakpoint(Machine *machine, GuestVAddr breakpoint)
 void machine_del_breakpoint(Machine *machine, u64 index)
 {
     u64 len = machine->breakpoints.count;
-    if (len == 0 || index >= len)
-        return;
-    if (index < len - 1)
+    if (len == 0 || index >= len) return;
+    if (index < len - 1) {
         nob_swap(u64, machine->breakpoints.items[index], machine->breakpoints.items[len - 1]);
+    }
     da_pop(&machine->breakpoints);
 }
 
@@ -284,8 +244,7 @@ bool machine_check_breakpoint(const Machine *machine, GuestVAddr addr)
 {
     for (u64 i = 0; i < machine->breakpoints.count; i++) {
         GuestVAddr breakpoint = machine->breakpoints.items[i];
-        if (addr == breakpoint)
-            return true;
+        if (addr == breakpoint) return true;
     }
     return false;
 }

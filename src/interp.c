@@ -62,7 +62,9 @@ SIGNATURE(name) \
     u64 rs1 = cpu_get_gpr(state, instr->rs1); \
     u64 rs2 = cpu_get_gpr(state, instr->rs2); \
     GuestVAddr addr = cpu_get_pc(state) + (i64) instr->imm; \
+    instr->cfc = false; \
     if (expr) { \
+        instr->cfc = true; \
         cpu_set_flow_ctl(state, FLOW_BRANCH); \
         cpu_set_flow_pc(state, addr); \
     } \
@@ -214,23 +216,16 @@ typedef void (*InstrFunc)(CPUState *, Instr *);
 static InstrFunc dispatch_table[] = { INSTRUCTION_LIST(X) };
 #undef X
 
-#ifdef DEBUG
 void interp_single(Machine *machine)
 {
     CPUState *state = &machine->state;
-#else
-void interp_single(CPUState *state)
-{
-#endif
-    Instr instr = {0};
-
 #ifdef DEBUG
     if (machine->single_step)
         cpu_set_flow_ctl(state, FLOW_HALT);
 #endif
 
+    Instr instr = {0};
     u32 raw = mem_read_u32(cpu_get_pc(state));
-
     if (unlikely(!decode_instr(raw, &instr))) {
         cpu_set_flow_ctl(state, FLOW_ILLEGAL_INSTR);
         return;
@@ -241,35 +236,34 @@ void interp_single(CPUState *state)
     InstrFunc func = dispatch_table[instr.kind];
     func(state, &instr);
 
-    if (instr.cfc)
-        return;
+    if (instr.cfc) return;
     cpu_commit_pc(state);
 }
 
-Record record = {0};
-
-#ifdef DEBUG
 void interp_block(Machine *machine)
 {
     CPUState *state = &machine->state;
-#else
-void interp_block(CPUState *state)
-{
-#endif
-    Instr instr = {0};
+
+    if (machine->dbcache->last_accessed) {
+        da_foreach(Instr, instr, machine->dbcache->last_accessed) {
+            cpu_increase_flow_pc(state, instr->rvc ? 2 : 4);
+            InstrFunc func = dispatch_table[instr->kind];
+            func(state, instr);
+            if (instr->cfc) return;
+            cpu_commit_pc(state);
+        }
+        goto no_cache;
+    }
 
     while (true) {
+no_cache:
+        ;
+        Instr instr = {0};
         u64 pc = cpu_get_pc(state);
-
         u32 raw = mem_read_u32(pc);
-
         if (unlikely(!decode_instr(raw, &instr))) {
             cpu_set_flow_ctl(state, FLOW_ILLEGAL_INSTR);
             break;
-        }
-        if (instr.kind == instr_ebreak) {
-            printf("[%lx] %s\n", pc, instr_to_string(&instr));
-            abort();
         }
 
 #ifdef DEBUG
@@ -287,14 +281,7 @@ void interp_block(CPUState *state)
         machine->skip_breakpoint = false;
 #endif
 
-        if (instr.cfc) {
-            u64 *count = ht_find(&record, pc);
-            if (count)
-                *count += 1;
-            else
-                *ht_put(&record, pc) = 1;
-            break;
-        }
+        if (instr.cfc) return;
         cpu_commit_pc(state);
     }
 }

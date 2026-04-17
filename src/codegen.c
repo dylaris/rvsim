@@ -252,6 +252,7 @@ SIGNATURE(name) \
     instr->cfc = true; \
 }
 
+#define GEN_OP_HMUL GEN_SKIP
 #define GEN_FP_SGNJ GEN_SKIP
 #define GEN_FP_XFER_F2I GEN_SKIP
 #define GEN_FP_XFER_I2F GEN_SKIP
@@ -259,6 +260,14 @@ SIGNATURE(name) \
 #define GEN_FP_CLASS GEN_SKIP
 
 #else
+
+#define GEN_OP_HMUL(name, expr, a2, a3, a4) \
+SIGNATURE(name) \
+{ \
+    XREG_GET(instr->rs1, rs1); \
+    XREG_GET(instr->rs2, rs2); \
+    XREG_SET_EXPR(instr->rd, expr); \
+}
 
 #define GEN_FP_SGNJ(name, view, type, neg, xor) \
 SIGNATURE(name) \
@@ -310,6 +319,7 @@ INSTRUCTION_LIST(GEN)
 #undef GEN_AUIPC
 #undef GEN_STORE
 #undef GEN_OP_REG
+#undef GEN_OP_HMUL
 #undef GEN_LUI
 #undef GEN_BRANCH
 #undef GEN_JUMP
@@ -353,11 +363,98 @@ static TCCState *compile(const char *source)
     return s;
 }
 
+#if 0
+
 #define CODEGEN_PROLOGUE                                 \
     "#include \"cpu.h\"                              \n" \
     "#include \"mmu.h\"                              \n" \
     "#include \"memory.h\"                           \n" \
     "void start(volatile CPUState *restrict state) { \n" \
+
+#else
+
+#define CODEGEN_PROLOGUE                                \
+    "#include <stdint.h>                            \n" \
+    "typedef int8_t   i8;                           \n" \
+    "typedef int16_t  i16;                          \n" \
+    "typedef int32_t  i32;                          \n" \
+    "typedef int64_t  i64;                          \n" \
+    "typedef uint8_t  u8;                           \n" \
+    "typedef uint16_t u16;                          \n" \
+    "typedef uint32_t u32;                          \n" \
+    "typedef uint64_t u64;                          \n" \
+    "typedef float    f32;                          \n" \
+    "typedef double   f64;                          \n" \
+    "typedef u64 GPR;                               \n" \
+    "typedef u64 CSR;                               \n" \
+    "typedef union {                                \n" \
+    "    u64 q;                                     \n" \
+    "    f64 d;                                     \n" \
+    "    u32 w;                                     \n" \
+    "    f32 s;                                     \n" \
+    "} FPR;                                         \n" \
+    "#define TRAP_MASK (1 << 4)                     \n" \
+    "typedef enum {                                 \n" \
+    "    FLOW_NONE           = 0,                   \n" \
+    "    FLOW_BRANCH         = 1,                   \n" \
+    "    FLOW_JUMP           = 2,                   \n" \
+    "    FLOW_SKIP_CODEGEN   = 3,                   \n" \
+    "    FLOW_ECALL          = TRAP_MASK | 1,       \n" \
+    "    FLOW_ILLEGAL_INSTR  = TRAP_MASK | 2,       \n" \
+    "    FLOW_LOAD_MISALIGN  = TRAP_MASK | 3,       \n" \
+    "    FLOW_STORE_MISALIGN = TRAP_MASK | 4,       \n" \
+    "    FLOW_LOAD_FAULT     = TRAP_MASK | 5,       \n" \
+    "    FLOW_STORE_FAULT    = TRAP_MASK | 6,       \n" \
+    "    FLOW_CRASH          = TRAP_MASK | 7,       \n" \
+    "    FLOW_HALT           = TRAP_MASK | 8,       \n" \
+    "    FLOW_CACHE_OVERFLOW = TRAP_MASK | 9,       \n" \
+    "} FlowCtrl;                                    \n" \
+    "typedef struct {                               \n" \
+    "    u64 pc;                                    \n" \
+    "    FlowCtrl ctl;                              \n" \
+    "} Flow;                                        \n" \
+    "typedef struct {                               \n" \
+    "    GPR gp_regs[32];                           \n" \
+    "    u64 pc;                                    \n" \
+    "    Flow flow;                                 \n" \
+    "    FPR fp_regs[32];                           \n" \
+    "} CPUState;                                    \n" \
+    "typedef u64 HostVAddr;                         \n" \
+    "typedef u64 GuestVAddr;                        \n" \
+    "#define GUEST_MEMORY_OFFSET 0x088800000000ULL  \n" \
+    "#define cpu_set_flow_pc(state_, pc_)           ((state_)->flow.pc = (pc_))\n"                                           \
+    "#define cpu_set_flow_ctl(state_, ctl_)         ((state_)->flow.ctl = (ctl_))\n"                                         \
+    "#define cpu_set_gpr(state_, reg_, val_)        do { if ((reg_) != 0) (state_)->gp_regs[(reg_)] = (val_); } while (0)\n" \
+    "#define cpu_get_gpr(state_, reg_)              (((reg_) == 0) ? 0 : (state_)->gp_regs[(reg_)])\n"                       \
+    "#define cpu_set_fpr(state_, reg_, val_)        ((state_)->fp_regs[(reg_)] = (val_))\n"                                  \
+    "#define cpu_get_fpr(state_, reg_)              ((state_)->fp_regs[(reg_)])\n"                                           \
+    "#define cpu_set_fpr_q(state_, reg_, val_)      ((state_)->fp_regs[(reg_)].q = (val_))\n"                                \
+    "#define cpu_get_fpr_q(state_, reg_)            ((state_)->fp_regs[(reg_)].q)\n"                                         \
+    "#define cpu_set_fpr_w(state_, reg_, val_)      ((state_)->fp_regs[(reg_)].w = (val_))\n"                                \
+    "#define cpu_get_fpr_w(state_, reg_)            ((state_)->fp_regs[(reg_)].w)\n"                                         \
+    "#define cpu_set_fpr_d(state_, reg_, val_)      ((state_)->fp_regs[(reg_)].d = (val_))\n"                                \
+    "#define cpu_get_fpr_d(state_, reg_)            ((state_)->fp_regs[(reg_)].d)\n"                                         \
+    "#define cpu_set_fpr_s(state_, reg_, val_)      ((state_)->fp_regs[(reg_)].s = (val_))\n"                                \
+    "#define cpu_get_fpr_s(state_, reg_)            ((state_)->fp_regs[(reg_)].s)\n"                                         \
+    "#define mmu_to_host(addr)  ((addr) + GUEST_MEMORY_OFFSET)\n"                                                            \
+    "#define mmu_to_guest(addr) ((addr) - GUEST_MEMORY_OFFSET)\n"                                                            \
+    "#define mem_write_u8(addr, val)                (*(u8*)mmu_to_host(addr) = val)\n"                                       \
+    "#define mem_write_u16(addr, val)               (*(u16*)mmu_to_host(addr) = val)\n"                                      \
+    "#define mem_write_u32(addr, val)               (*(u32*)mmu_to_host(addr) = val)\n"                                      \
+    "#define mem_write_u64(addr, val)               (*(u64*)mmu_to_host(addr) = val)\n"                                      \
+    "#define mem_read_u8(addr)                      (*(u8*)mmu_to_host(addr))\n"                                             \
+    "#define mem_read_u16(addr)                     (*(u16*)mmu_to_host(addr))\n"                                            \
+    "#define mem_read_u32(addr)                     (*(u32*)mmu_to_host(addr))\n"                                            \
+    "#define mem_read_u64(addr)                     (*(u64*)mmu_to_host(addr))\n"                                            \
+    "#define mem_read_i8(addr)                      (*(i8*)mmu_to_host(addr))\n"                                             \
+    "#define mem_read_i16(addr)                     (*(i16*)mmu_to_host(addr))\n"                                            \
+    "#define mem_read_i32(addr)                     (*(i32*)mmu_to_host(addr))\n"                                            \
+    "#define mem_read_i64(addr)                     (*(i64*)mmu_to_host(addr))\n"                                            \
+    "#define help_div(a, b) (((b) == 0) ? (i64)-1  : (((i64)(a) == INT64_MIN && (i64)(b) == (i64)-1) ? INT64_MIN : (i64)(a)  / (i64)(b)))\n" \
+    "#define help_rem(a, b) (((b) == 0) ? (i64)(a) : (((i64)(a) == INT64_MIN && (i64)(b) == (i64)-1) ? (i64)0    : (i64)(a) %% (i64)(b)))\n" \
+    "void start(volatile CPUState *restrict state) {\n"
+
+#endif
 
 #define CODEGEN_EPILOGUE  \
     "end:             \n" \

@@ -5,7 +5,7 @@
 
 #include "decode.h"
 
-#define DBCACHE_HOT_COUNT 1000
+#define DBCACHE_HOT_COUNT 10000
 
 typedef struct {
     u64 pc;

@@ -103,47 +103,46 @@ void machine_trap(Machine *machine)
 
 void machine_step(Machine *machine)
 {
-#ifdef DEBUG
-
-    if (machine->single_step) {
-        machine->engine = interp_single;
-        return;
-    }
-    machine->engine = interp_block;
-    cpu_reset_flow_ctl(&machine->state);
-    machine->engine(machine);
-
-#else
-
     while (true) {
-lookup:
-        ;
+#ifdef INTERP
+    machine->engine = machine->single_step ? interp_single : interp_block;
+#else
+    #if defined(ENABLE_DBCACHE) || defined(ENABLE_TBCACHE)
         u64 pc = cpu_get_pc(&machine->state);
         u64 hit_count = bb_hit(pc);
+    #endif
 
+    #ifdef ENABLE_DBCACHE
         DBCacheEntry *dbentry = dbcache_lookup(machine->dbcache, pc);
         if (!dbentry && hit_count >= DBCACHE_HOT_COUNT) {
             dbentry = dbcache_add(machine->dbcache, pc);
         }
         machine->dbcache->last_accessed = dbentry;
+        machine->engine = interp_block;
+    #endif // ENABLE_DBCACHE
 
+    #ifdef ENABLE_TBCACHE
         TBCacheEntry *tbentry = tbcache_lookup(machine->tbcache, pc);
         if (!tbentry->code && hit_count >= TBCACHE_HOT_COUNT) {
             tbentry->code = gencode(machine->codegen, machine->tbcache, pc);
         }
         machine->engine = tbentry->code != NULL ? (BlockExec) tbentry->code : interp_block;
+    #endif // ENABLE_TBCACHE
+#endif // INTERP
 
 exec:
         cpu_reset_flow_ctl(&machine->state);
         machine->engine(machine);
-        assert(cpu_get_flow_ctl(&machine->state) != FLOW_NONE);
+
+#ifdef ENABLE_DBCACHE
         machine->dbcache->last_accessed = NULL;
+#endif // ENABLE_DBCACHE
 
         switch (cpu_get_flow_ctl(&machine->state)) {
         case FLOW_BRANCH:
         case FLOW_JUMP:
             cpu_commit_pc(&machine->state);
-            goto lookup;
+            break;
         case FLOW_SKIP_CODEGEN:
             machine->engine = interp_block;
             cpu_commit_pc(&machine->state);
@@ -155,8 +154,6 @@ exec:
             unreachable();
         }
     }
-
-#endif
 }
 
 

@@ -50,6 +50,14 @@ SIGNATURE(name) \
     cpu_set_gpr(state, instr->rd, (expr)); \
 }
 
+#define GEN_OP_HMUL(name, expr, a2, a3, a4) \
+SIGNATURE(name) \
+{ \
+    u64 rs1 = cpu_get_gpr(state, instr->rs1); \
+    u64 rs2 = cpu_get_gpr(state, instr->rs2); \
+    cpu_set_gpr(state, instr->rd, (expr)); \
+}
+
 #define GEN_LUI(name, a1, a2, a3, a4) \
 SIGNATURE(name) \
 { \
@@ -195,6 +203,7 @@ INSTRUCTION_LIST(GEN)
 #undef GEN_AUIPC
 #undef GEN_STORE
 #undef GEN_OP_REG
+#undef GEN_OP_HMUL
 #undef GEN_LUI
 #undef GEN_BRANCH
 #undef GEN_JUMP
@@ -244,6 +253,7 @@ void interp_block(Machine *machine)
 {
     CPUState *state = &machine->state;
 
+#ifdef ENABLE_DBCACHE
     if (machine->dbcache->last_accessed) {
         da_foreach(Instr, instr, machine->dbcache->last_accessed) {
             cpu_increase_flow_pc(state, instr->rvc ? 2 : 4);
@@ -254,10 +264,13 @@ void interp_block(Machine *machine)
         }
         goto no_cache;
     }
+#endif // ENABLE_DBCACHE
 
     while (true) {
+#ifdef ENABLE_DBCACHE
 no_cache:
         ;
+#endif // ENABLE_DBCACHE
         Instr instr = {0};
         u64 pc = cpu_get_pc(state);
         u32 raw = mem_read_u32(pc);

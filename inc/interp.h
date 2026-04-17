@@ -42,6 +42,13 @@ static inline i64 help_mulhsu(i64 a, i64 b)
     return negate ? ~res + (a * b == 0) : res;
 }
 
+#if 1
+
+#define help_div(a, b) (((b) == 0) ? (i64)-1  : (((i64)(a) == INT64_MIN && (i64)(b) == (i64)-1) ? INT64_MIN : (i64)(a) / (i64)(b)))
+#define help_rem(a, b) (((b) == 0) ? (i64)(a) : (((i64)(a) == INT64_MIN && (i64)(b) == (i64)-1) ? (i64)0    : (i64)(a) % (i64)(b)))
+
+#else
+
 static inline i64 help_div(i64 a, i64 b)
 {
     if (b == 0)
@@ -61,6 +68,8 @@ static inline i64 help_rem(i64 a, i64 b)
     else
         return a % b;
 }
+
+#endif
 
 #define F32_SIGN ((uint32_t)1 << 31)
 #define F64_SIGN ((u64)1 << 63)

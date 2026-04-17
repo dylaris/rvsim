@@ -41,12 +41,9 @@
     X(or,     OP_REG, rs1 | rs2,                                                            _, _, _) \
     X(and,    OP_REG, rs1 & rs2,                                                            _, _, _) \
     X(mul,    OP_REG, rs1 * rs2,                                                            _, _, _) \
-    X(mulh,   OP_REG, help_mulh(rs1, rs2),                                                  _, _, _) \
-    X(mulhsu, OP_REG, help_mulhsu(rs1, rs2),                                                _, _, _) \
-    X(mulhu,  OP_REG, help_mulhu(rs1, rs2),                                                 _, _, _) \
-    X(div,    OP_REG, help_div(rs1, rs2),                                                   _, _, _) \
+    X(div,    OP_REG, help_div(rs1, rs2),                                                  _, _, _) \
     X(divu,   OP_REG, rs2 == 0 ? UINT64_MAX : rs1 / rs2,                                    _, _, _) \
-    X(rem,    OP_REG, help_rem(rs1, rs2),                                                   _, _, _) \
+    X(rem,    OP_REG, help_rem(rs1, rs2),                                                  _, _, _) \
     X(remu,   OP_REG, rs2 == 0 ? rs1 : rs1 % rs2,                                           _, _, _) \
     X(sub,    OP_REG, rs1 - rs2,                                                            _, _, _) \
     X(sra,    OP_REG, (i64)rs1 >> (rs2 & 0x3f),                                             _, _, _) \
@@ -60,6 +57,9 @@
     X(remuw,  OP_REG, rs2 == 0 ? (i64)(i32)(u32)rs1 : (i64)(i32)((u32)rs1 % (u32)rs2),      _, _, _) \
     X(subw,   OP_REG, (i64)(i32)(rs1 - rs2),                                                _, _, _) \
     X(sraw,   OP_REG, (i64)(i32)((i32)rs1 >> (rs2 & 0x1f)),                                 _, _, _) \
+    X(mulh,   OP_HMUL, help_mulh(rs1, rs2),                                                 _, _, _) \
+    X(mulhsu, OP_HMUL, help_mulhsu(rs1, rs2),                                               _, _, _) \
+    X(mulhu,  OP_HMUL, help_mulhu(rs1, rs2),                                                _, _, _) \
     X(beq,  BRANCH, (u64)rs1 == (u64)rs2, _, _, _) \
     X(bne,  BRANCH, (u64)rs1 != (u64)rs2, _, _, _) \
     X(blt,  BRANCH, (i64)rs1 <  (i64)rs2, _, _, _) \

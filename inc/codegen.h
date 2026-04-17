@@ -2,8 +2,8 @@
 #define CODEGEN_H
 
 #include "common.h"
-#include "ht.h"
 #include "nob.h"
+#include "ht.h"
 
 typedef Ht(u64, bool) Set;
 

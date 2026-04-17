@@ -5,3 +5,6 @@ tmp/
 discard
 riscv-tests/
 bin/
+nob
+nob.old
+report/

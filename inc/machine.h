@@ -19,9 +19,7 @@ struct Machine {
     TBCache *tbcache;
     DBCache *dbcache;
     CodeGenerator *codegen;
-
     Stack breakpoints;
-    bool skip_breakpoint;
 };
 
 Machine machine_create(void);

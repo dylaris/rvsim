@@ -23,6 +23,7 @@ const char *syscall_to_string(SyscallNr n)
 static u64 sys_exit(Machine *machine)
 {
     GET(code, GPR_A0);
+    machine_destroy(machine);
     exit(code);
 }
 

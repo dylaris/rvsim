@@ -4,17 +4,17 @@ set -xe
 
 echo "Testing tbcache..."
 ./nob tbcache
-./rvsim bin/nbench > tbcache.txt
+./rvsim --elf bin/nbench > tbcache.txt
 sync
 
 echo "Testing dbcache..."
 ./nob dbcache
-./rvsim bin/nbench > dbcache.txt
+./rvsim --elf bin/nbench > dbcache.txt
 sync
 
 echo "Testing interp..."
 ./nob interp
-./rvsim bin/nbench > interp.txt
+./rvsim --elf bin/nbench > interp.txt
 sync
 
 echo "All tests completed."

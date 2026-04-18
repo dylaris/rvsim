@@ -12,13 +12,6 @@ typedef enum {
     FLOW_SKIP_CODEGEN   = 3,
     FLOW_ECALL          = TRAP_MASK | 1,
     FLOW_ILLEGAL_INSTR  = TRAP_MASK | 2,
-    FLOW_LOAD_MISALIGN  = TRAP_MASK | 3,
-    FLOW_STORE_MISALIGN = TRAP_MASK | 4,
-    FLOW_LOAD_FAULT     = TRAP_MASK | 5,
-    FLOW_STORE_FAULT    = TRAP_MASK | 6,
-    FLOW_CRASH          = TRAP_MASK | 7,
-    FLOW_HALT           = TRAP_MASK | 8,
-    FLOW_CACHE_OVERFLOW = TRAP_MASK | 9,
 } FlowCtrl;
 
 typedef struct {

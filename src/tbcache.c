@@ -31,6 +31,7 @@ void tbcache_destroy(TBCache *cache)
     da_foreach(TBCacheBlock, block, cache) {
         munmap(block->buffer, TBCACHE_BLOCK_CAPACITY);
     }
+    da_free(*cache);
     ht_free(&cache->lookup);
     free(cache);
 }

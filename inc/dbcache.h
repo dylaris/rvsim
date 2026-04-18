@@ -21,7 +21,7 @@ typedef struct {
     DBCacheEntry *last_accessed;
 } DBCache;
 
-DBCache *dbcache_create(size_t n);
+DBCache *dbcache_create(void);
 void dbcache_destroy(DBCache *cache);
 DBCacheEntry *dbcache_lookup(DBCache *cache, u64 pc);
 DBCacheEntry *dbcache_add(DBCache *cache, u64 pc);

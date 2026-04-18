@@ -2,13 +2,13 @@
 #define INTERP_H
 
 #include <math.h>
-
 #include "machine.h"
+
 void interp_single(Machine *machine);
 void interp_block(Machine *machine);
 
 /*
- * help functions below
+ * Help functions below
  */
 
 static inline u64 help_mulhu(u64 a, u64 b)

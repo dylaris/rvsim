@@ -99,7 +99,7 @@ SIGNATURE(name) \
     sb_appendf(sb, "    if (%s) {\n", #expr); \
     FLOW_SET2_EXPR(ctl, FLOW_BRANCH); \
     FLOW_SET2_VAL(pc, target_addr); \
-    if (block_should_link(pc, target_addr)) { \
+    if (profile_block_should_link(pc, target_addr)) { \
         da_append(stack, target_addr); \
         sb_appendf(sb, "        goto instr_%lx;\n", target_addr); \
     } else { \
@@ -123,7 +123,7 @@ SIGNATURE(name) \
         GuestVAddr target_addr = pc + (i64) instr->imm; \
         FLOW_SET_EXPR(ctl, FLOW_JUMP); \
         FLOW_SET_VAL(pc, target_addr); \
-        if (block_should_link(pc, target_addr)) { \
+        if (profile_block_should_link(pc, target_addr)) { \
             da_append(stack, target_addr); \
             sb_appendf(sb, "    goto instr_%lx;\n", target_addr); \
         } else { \

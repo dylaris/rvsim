@@ -20,8 +20,6 @@ struct Machine {
     DBCache *dbcache;
     CodeGenerator *codegen;
 
-    bool single_step;
-    bool halt;
     Stack breakpoints;
     bool skip_breakpoint;
 };
@@ -29,7 +27,6 @@ struct Machine {
 Machine machine_create(void);
 void machine_destroy(Machine *machine);
 void machine_print(const Machine *machine);
-void machine_resolve(Machine *machine);
 void machine_step(Machine *machine);
 void machine_load_bin(Machine *machine, const char *prog, GuestVAddr base);
 void machine_load_elf(Machine *machine, const char *prog);

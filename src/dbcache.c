@@ -2,13 +2,11 @@
 #include "memory.h"
 #include "nob.h"
 
-DBCache *dbcache_create(size_t n)
+DBCache *dbcache_create(void)
 {
     DBCache *cache = malloc(sizeof(DBCache));
     assert(cache && "run out of memory");
-    cache->items = malloc(sizeof(DBCacheEntry) * n);
-    cache->count = 0;
-    cache->capacity = n;
+    memset(cache, 0, sizeof(DBCache));
     return cache;
 }
 

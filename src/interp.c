@@ -228,24 +228,18 @@ static InstrFunc dispatch_table[] = { INSTRUCTION_LIST(X) };
 void interp_single(Machine *machine)
 {
     CPUState *state = &machine->state;
-#ifdef DEBUG
-    if (machine->single_step)
-        cpu_set_flow_ctl(state, FLOW_HALT);
-#endif
-
+    cpu_reset_flow_ctl(state);
     Instr instr = {0};
-    u32 raw = mem_read_u32(cpu_get_pc(state));
+    u64 pc = cpu_get_pc(state);
+    u32 raw = mem_read_u32(pc);
     if (unlikely(!decode_instr(raw, &instr))) {
         cpu_set_flow_ctl(state, FLOW_ILLEGAL_INSTR);
         return;
     }
-
     cpu_increase_flow_pc(state, instr.rvc ? 2 : 4);
-
     InstrFunc func = dispatch_table[instr.kind];
     func(state, &instr);
-
-    if (instr.cfc) return;
+    if (IS_TRAP(cpu_get_flow_ctl(state))) machine_trap(machine);
     cpu_commit_pc(state);
 }
 
@@ -279,20 +273,10 @@ no_cache:
             break;
         }
 
-#ifdef DEBUG
-        if (unlikely(!machine->skip_breakpoint && machine_check_breakpoint(machine, pc))) {
-            cpu_set_flow_ctl(state, FLOW_HALT);
-            break;
-        }
-#endif
         cpu_increase_flow_pc(state, instr.rvc ? 2 : 4);
 
         InstrFunc func = dispatch_table[instr.kind];
         func(state, &instr);
-
-#ifdef DEBUG
-        machine->skip_breakpoint = false;
-#endif
 
         if (instr.cfc) return;
         cpu_commit_pc(state);

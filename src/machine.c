@@ -72,29 +72,10 @@ void machine_trap(Machine *machine)
     switch (machine->state.flow.ctl) {
     case FLOW_ECALL:
         do_syscall(machine);
-        break;
+        return;
 
     case FLOW_ILLEGAL_INSTR:
         fatalf("illegal instruction '0x%08x' @ 0x%016lx", mem_read_u32(pc), pc);
-
-    case FLOW_LOAD_FAULT:
-    case FLOW_STORE_FAULT:
-        fatalf("memory access fault @ 0x%016lx", pc);
-
-    case FLOW_LOAD_MISALIGN:
-    case FLOW_STORE_MISALIGN:
-        fatalf("memory align fault @ 0x%016lx", pc);
-
-    case FLOW_CRASH:
-        fatalf("this simulator crashed: %s", strerror(errno));
-
-    case FLOW_HALT:
-        machine->skip_breakpoint = false;
-        machine->single_step = false;
-        machine->halt = true;
-        machine_repl(machine);
-        machine->halt = false;
-        break;
 
     default:
         unreachable();
@@ -105,11 +86,11 @@ void machine_step(Machine *machine)
 {
     while (true) {
 #ifdef INTERP
-    machine->engine = machine->single_step ? interp_single : interp_block;
+    machine->engine = interp_block;
 #else
     #if defined(ENABLE_DBCACHE) || defined(ENABLE_TBCACHE)
         u64 pc = cpu_get_pc(&machine->state);
-        u64 hit_count = bb_hit(pc);
+        u64 hit_count = profile_block_hit(pc);
     #endif
 
     #ifdef ENABLE_DBCACHE
@@ -160,7 +141,7 @@ exec:
 void machine_print(const Machine *machine)
 {
     printf("flow.pc: 0x%lx\n", cpu_get_flow_pc(&machine->state));
-    // printf("ctl:     %d\n", cpu_get_flow_ctl(&machine->state));
+    printf("ctl:     %d\n", cpu_get_flow_ctl(&machine->state));
     printf("PC:      0x%lx\n", cpu_get_pc(&machine->state));
     printf("ZERO:    0x%lx\n", cpu_get_gpr(&machine->state, GPR_ZERO));
     printf("RA:      0x%lx\n", cpu_get_gpr(&machine->state, GPR_RA));
@@ -205,16 +186,15 @@ Machine machine_create(void)
         .mem         = (Memory) {0},
         .engine      = NULL,
         .tbcache     = tbcache_create(16),
-        .dbcache     = dbcache_create(KB(1)),
+        .dbcache     = dbcache_create(),
         .codegen     = codegen_create(),
-        .halt        = false,
-        .single_step = false,
         .breakpoints = {0},
     };
 }
 
 void machine_destroy(Machine *machine)
 {
+    profile_free();
     mem_free(&machine->mem);
     da_free(machine->breakpoints);
     codegen_destroy(machine->codegen);
@@ -252,19 +232,14 @@ void machine_repl(Machine *machine)
     char cmd;
     GuestVAddr addr;
 
-    if (!machine->halt)
-        return;
-
-    while (1) {
+    while (true) {
         printf(">>> ");
         fflush(stdout);
 
         // parse input
-        if (!fgets(input, sizeof(input), stdin))
-            exit(0);
+        if (!fgets(input, sizeof(input), stdin)) exit(0);
         input[strcspn(input, "\n")] = 0;
-        if (strlen(input) == 0)
-            continue;
+        if (strlen(input) == 0) continue;
         sscanf(input, "%c", &cmd);
 
         // handle command
@@ -290,9 +265,11 @@ void machine_repl(Machine *machine)
             break;
 
         case 'c':
-            machine->skip_breakpoint = true;
             printf("[cont] pc = 0x%016lx\n", cpu_get_pc(&machine->state));
-            return;
+            do {
+                interp_single(machine);
+            } while (!machine_check_breakpoint(machine, cpu_get_pc(&machine->state)));
+            break;
 
         case 'r':
             printf("PC:   0x%lx\n", cpu_get_pc(&machine->state));
@@ -339,9 +316,9 @@ void machine_repl(Machine *machine)
             break;
 
         case 'n':
-            machine->single_step = true;
             printf("[step] pc = 0x%016lx\n", cpu_get_pc(&machine->state));
-            return;
+            interp_single(machine);
+            break;
 
         case 'q':
             printf("[debug] quit\n");

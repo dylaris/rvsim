@@ -9,7 +9,6 @@ typedef enum {
     TBCACHE,
     CACHE,
     DEBUG,
-    TEST,
     LIBRARY,
     CLEAN,
     INVALID
@@ -26,7 +25,6 @@ static Flag what_flag(int argc, char **argv)
     if (strcmp(flag_str, "tbcache") == 0) return TBCACHE;
     if (strcmp(flag_str, "cache")   == 0) return CACHE;
     if (strcmp(flag_str, "debug")   == 0) return DEBUG;
-    if (strcmp(flag_str, "test")    == 0) return TEST;
     if (strcmp(flag_str, "lib")     == 0) return LIBRARY;
     if (strcmp(flag_str, "clean")   == 0) return CLEAN;
     return INVALID;
@@ -44,7 +42,6 @@ static void print_help_message(void)
         "  dbcache:  Interp with decode cache  \n"
         "  tbcache:  Interp with code cache    \n"
         "  lib:      Build library             \n"
-        "  test:     Build test version        \n"
         "  debug:    Build debug version       \n"
         "======================================\n"
     );
@@ -97,18 +94,19 @@ void build_cache(void)
     output = "rvsim";
 }
 
-void build_test(void)
-{
-    da_append(&cflags, "-DTEST");
-    input = SOURCE"one.c";
-    output = "rvsim";
-}
-
 void build_debug(void)
 {
     da_appendw(&cflags, "-DDEBUG", "-O0", "-ggdb");
     input = SOURCE"one.c";
     output = "rvsim";
+}
+
+void build_library(void)
+{
+    da_appendw(&cflags, "-O3", "-fPIC");
+    da_appendw(&cldflags, "-shared");
+    input = SOURCE"one.c";
+    output = "librvsim.so";
 }
 
 bool clean(void)
@@ -152,10 +150,8 @@ int main(int argc, char **argv)
     case DEBUG:
         build_debug();
         break;
-    case TEST:
-        build_test();
-        break;
     case LIBRARY:
+        build_library();
         break;
     case CLEAN:
         if (!clean()) return 1;

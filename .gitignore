@@ -1,4 +1,4 @@
-rvsim
+rvsim*
 librvsim.so
 tags
 tmp/
@@ -8,3 +8,7 @@ bin/
 nob
 nob.old
 report/
+rvdb
+rvdb.c
+clay-probe
+tool/

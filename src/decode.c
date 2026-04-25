@@ -389,8 +389,18 @@ const char *instr_to_string(const Instr *instr)
 #undef X
 }
 
-bool decode_instr(u32 raw, Instr *out)
+void decode_instr(u64 pc, Instr *out)
 {
+    // NOTE:
+    // This memeset is important, because we pass the instr pointer,
+    // and in some special case, the instr pointer will not set all
+    // fields, it may reuse the last result, like rvc or cfc and so on.
+    // So reset it before decode would be better
+    memset(out, 0, sizeof(Instr));
+
+    u32 raw = mem_read_u32(pc);
+    out->curr_pc = pc;
+
     u32 quadrant = QUADRANT(raw);
     switch (quadrant) {
     case 0x0: {
@@ -401,33 +411,32 @@ bool decode_instr(u32 raw, Instr *out)
             *out = instr_ciwtype_read(raw);
             out->rs1 = GPR_SP;
             out->kind = instr_addi;
-            if (unlikely(out->imm == 0))
-                return false;
-            return true;
+            assert(out->imm != 0);
+            goto ok;
         case 0x1: /* C.FLD */
             *out = instr_cltype_read2(raw);
             out->kind = instr_fld;
-            return true;
+            goto ok;
         case 0x2: /* C.LW */
             *out = instr_cltype_read(raw);
             out->kind = instr_lw;
-            return true;
+            goto ok;
         case 0x3: /* C.LD */
             *out = instr_cltype_read2(raw);
             out->kind = instr_ld;
-            return true;
+            goto ok;
         case 0x5: /* C.FSD */
             *out = instr_cstype_read(raw);
             out->kind = instr_fsd;
-            return true;
+            goto ok;
         case 0x6: /* C.SW */
             *out = instr_cstype_read2(raw);
             out->kind = instr_sw;
-            return true;
+            goto ok;
         case 0x7: /* C.SD */
             *out = instr_cstype_read(raw);
             out->kind = instr_sd;
-            return true;
+            goto ok;
         default:
             printf("raw: %x\n", raw);
             fatal("unimplemented");
@@ -442,34 +451,31 @@ bool decode_instr(u32 raw, Instr *out)
             *out = instr_citype_read(raw);
             out->rs1 = out->rd;
             out->kind = instr_addi;
-            return true;
+            goto ok;
         case 0x1: /* C.ADDIW */
             *out = instr_citype_read(raw);
-            if (unlikely(out->rd == 0))
-                return false;
+            assert(out->rd != 0);
             out->rs1 = out->rd;
             out->kind = instr_addiw;
-            return true;
+            goto ok;
         case 0x2: /* C.LI */
             *out = instr_citype_read(raw);
             out->rs1 = GPR_ZERO;
             out->kind = instr_addi;
-            return true;
+            goto ok;
         case 0x3: {
             i32 rd = RC1(raw);
             if (rd == 2) { /* C.ADDI16SP */
                 *out = instr_citype_read3(raw);
-                if (unlikely(out->imm == 0))
-                    return false;
+                assert(out->imm != 0);
                 out->rs1 = out->rd;
                 out->kind = instr_addi;
-                return true;
+                goto ok;
             } else { /* C.LUI */
                 *out = instr_citype_read5(raw);
-                if (unlikely(out->imm == 0))
-                    return false;
+                assert(out->imm != 0);
                 out->kind = instr_lui;
-                return true;
+                goto ok;
             }
         }
         unreachable();
@@ -490,7 +496,7 @@ bool decode_instr(u32 raw, Instr *out)
                 } else {
                     out->kind = instr_andi;
                 }
-                return true;
+                goto ok;
             }
             unreachable();
             case 0x3: {
@@ -518,7 +524,7 @@ bool decode_instr(u32 raw, Instr *out)
                         break;
                     default: unreachable();
                     }
-                    return true;
+                    goto ok;
                 }
                 unreachable();
                 case 0x1: {
@@ -536,7 +542,7 @@ bool decode_instr(u32 raw, Instr *out)
                         break;
                     default: unreachable();
                     }
-                    return true;
+                    goto ok;
                 }
                 unreachable();
                 default: unreachable();
@@ -552,14 +558,14 @@ bool decode_instr(u32 raw, Instr *out)
             out->rd = GPR_ZERO;
             out->kind = instr_jal;
             out->cfc = true;
-            return true;
+            goto ok;
         case 0x6: /* C.BEQZ */
         case 0x7: /* C.BNEZ */
             *out = instr_cbtype_read(raw);
             out->rs2 = GPR_ZERO;
             out->kind = copcode == 0x6 ? instr_beq : instr_bne;
             // out->cfc = true;
-            return true;
+            goto ok;
         default:
             fatal("unrecognized copcode");
         }
@@ -572,26 +578,24 @@ bool decode_instr(u32 raw, Instr *out)
             *out = instr_citype_read(raw);
             out->rs1 = out->rd;
             out->kind = instr_slli;
-            return true;
+            goto ok;
         case 0x1: /* C.FLDSP */
             *out = instr_citype_read2(raw);
             out->rs1 = GPR_SP;
             out->kind = instr_fld;
-            return true;
+            goto ok;
         case 0x2: /* C.LWSP */
             *out = instr_citype_read4(raw);
-            if (unlikely(out->rd == 0))
-                return false;
+            assert(out->rd != 0);
             out->rs1 = GPR_SP;
             out->kind = instr_lw;
-            return true;
+            goto ok;
         case 0x3: /* C.LDSP */
             *out = instr_citype_read2(raw);
-            if (unlikely(out->rd == 0))
-                return false;
+            assert(out->rd != 0);
             out->rs1 = GPR_SP;
             out->kind = instr_ld;
-            return true;
+            goto ok;
         case 0x4: {
             u32 cfunct1 = CFUNCT1(raw);
 
@@ -600,8 +604,7 @@ bool decode_instr(u32 raw, Instr *out)
                 *out = instr_crtype_read(raw);
 
                 if (out->rs2 == 0) { /* C.JR */
-                    if (unlikely(out->rs1 == 0))
-                        return false;
+                    assert(out->rs1 != 0);
                     out->rd = GPR_ZERO;
                     out->kind = instr_jalr;
                     out->cfc = true;
@@ -610,14 +613,14 @@ bool decode_instr(u32 raw, Instr *out)
                     out->rs1 = GPR_ZERO;
                     out->kind = instr_add;
                 }
-                return true;
+                goto ok;
             }
             unreachable();
             case 0x1: {
                 *out = instr_crtype_read(raw);
                 if (out->rs1 == 0 && out->rs2 == 0) { /* C.EBREAK */
                     out->kind = instr_ebreak;
-                    // fatal("unimplmented");
+                    fatal("unimplmented");
                 } else if (out->rs2 == 0) { /* C.JALR */
                     out->rd = GPR_RA;
                     out->kind = instr_jalr;
@@ -626,7 +629,7 @@ bool decode_instr(u32 raw, Instr *out)
                     out->rd = out->rs1;
                     out->kind = instr_add;
                 }
-                return true;
+                goto ok;
             }
             unreachable();
             default: unreachable();
@@ -637,17 +640,17 @@ bool decode_instr(u32 raw, Instr *out)
             *out = instr_csstype_read(raw);
             out->rs1 = GPR_SP;
             out->kind = instr_fsd;
-            return true;
+            goto ok;
         case 0x6: /* C.SWSP */
             *out = instr_csstype_read2(raw);
             out->rs1 = GPR_SP;
             out->kind = instr_sw;
-            return true;
+            goto ok;
         case 0x7: /* C.SDSP */
             *out = instr_csstype_read(raw);
             out->rs1 = GPR_SP;
             out->kind = instr_sd;
-            return true;
+            goto ok;
         default: fatal("unrecognized copcode");
         }
     }
@@ -662,25 +665,25 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct3) {
             case 0x0: /* LB */
                 out->kind = instr_lb;
-                return true;
+                goto ok;
             case 0x1: /* LH */
                 out->kind = instr_lh;
-                return true;
+                goto ok;
             case 0x2: /* LW */
                 out->kind = instr_lw;
-                return true;
+                goto ok;
             case 0x3: /* LD */
                 out->kind = instr_ld;
-                return true;
+                goto ok;
             case 0x4: /* LBU */
                 out->kind = instr_lbu;
-                return true;
+                goto ok;
             case 0x5: /* LHU */
                 out->kind = instr_lhu;
-                return true;
+                goto ok;
             case 0x6: /* LWU */
                 out->kind = instr_lwu;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -692,10 +695,10 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct3) {
             case 0x2: /* FLW */
                 out->kind = instr_flw;
-                return true;
+                goto ok;
             case 0x3: /* FLD */
                 out->kind = instr_fld;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -708,13 +711,13 @@ bool decode_instr(u32 raw, Instr *out)
                 Instr _instr = {0};
                 *out = _instr;
                 out->kind = instr_fence;
-                return true;
+                goto ok;
             }
             case 0x1: { /* FENCE.I */
                 Instr _instr = {0};
                 *out = _instr;
                 out->kind = instr_fence_i;
-                return true;
+                goto ok;
             }
             default: unreachable();
             }
@@ -727,7 +730,7 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct3) {
             case 0x0: /* ADDI */
                 out->kind = instr_addi;
-                return true;
+                goto ok;
             case 0x1: {
                 u32 imm116 = IMM116(raw);
                 if (imm116 == 0) { /* SLLI */
@@ -735,18 +738,18 @@ bool decode_instr(u32 raw, Instr *out)
                 } else {
                     unreachable();
                 }
-                return true;
+                goto ok;
             }
             unreachable();
             case 0x2: /* SLTI */
                 out->kind = instr_slti;
-                return true;
+                goto ok;
             case 0x3: /* SLTIU */
                 out->kind = instr_sltiu;
-                return true;
+                goto ok;
             case 0x4: /* XORI */
                 out->kind = instr_xori;
-                return true;
+                goto ok;
             case 0x5: {
                 u32 imm116 = IMM116(raw);
 
@@ -757,15 +760,15 @@ bool decode_instr(u32 raw, Instr *out)
                 } else {
                     unreachable();
                 }
-                return true;
+                goto ok;
             }
             unreachable();
             case 0x6: /* ORI */
                 out->kind = instr_ori;
-                return true;
+                goto ok;
             case 0x7: /* ANDI */
                 out->kind = instr_andi;
-                return true;
+                goto ok;
             default:
                 fatal("unrecognized funct3");
             }
@@ -774,7 +777,7 @@ bool decode_instr(u32 raw, Instr *out)
         case 0x5: /* AUIPC */
             *out = instr_utype_read(raw);
             out->kind = instr_auipc;
-            return true;
+            goto ok;
         case 0x6: {
             u32 funct3 = FUNCT3(raw);
             u32 funct7 = FUNCT7(raw);
@@ -784,20 +787,19 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct3) {
             case 0x0: /* ADDIW */
                 out->kind = instr_addiw;
-                return true;
+                goto ok;
             case 0x1: /* SLLIW */
-                if (unlikely(funct7 != 0))
-                    return false;
+                assert(funct7 == 0);
                 out->kind = instr_slliw;
-                return true;
+                goto ok;
             case 0x5: {
                 switch (funct7) {
                 case 0x0: /* SRLIW */
                     out->kind = instr_srliw;
-                    return true;
+                    goto ok;
                 case 0x20: /* SRAIW */
                     out->kind = instr_sraiw;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -814,16 +816,16 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct3) {
             case 0x0: /* SB */
                 out->kind = instr_sb;
-                return true;
+                goto ok;
             case 0x1: /* SH */
                 out->kind = instr_sh;
-                return true;
+                goto ok;
             case 0x2: /* SW */
                 out->kind = instr_sw;
-                return true;
+                goto ok;
             case 0x3: /* SD */
                 out->kind = instr_sd;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -835,10 +837,10 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct3) {
             case 0x2: /* FSW */
                 out->kind = instr_fsw;
-                return true;
+                goto ok;
             case 0x3: /* FSD */
                 out->kind = instr_fsd;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -854,28 +856,28 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (funct3) {
                 case 0x0: /* ADD */
                     out->kind = instr_add;
-                    return true;
+                    goto ok;
                 case 0x1: /* SLL */
                     out->kind = instr_sll;
-                    return true;
+                    goto ok;
                 case 0x2: /* SLT */
                     out->kind = instr_slt;
-                    return true;
+                    goto ok;
                 case 0x3: /* SLTU */
                     out->kind = instr_sltu;
-                    return true;
+                    goto ok;
                 case 0x4: /* XOR */
                     out->kind = instr_xor;
-                    return true;
+                    goto ok;
                 case 0x5: /* SRL */
                     out->kind = instr_srl;
-                    return true;
+                    goto ok;
                 case 0x6: /* OR */
                     out->kind = instr_or;
-                    return true;
+                    goto ok;
                 case 0x7: /* AND */
                     out->kind = instr_and;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -884,28 +886,28 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (funct3) {
                 case 0x0: /* MUL */
                     out->kind = instr_mul;
-                    return true;
+                    goto ok;
                 case 0x1: /* MULH */
                     out->kind = instr_mulh;
-                    return true;
+                    goto ok;
                 case 0x2: /* MULHSU */
                     out->kind = instr_mulhsu;
-                    return true;
+                    goto ok;
                 case 0x3: /* MULHU */
                     out->kind = instr_mulhu;
-                    return true;
+                    goto ok;
                 case 0x4: /* DIV */
                     out->kind = instr_div;
-                    return true;
+                    goto ok;
                 case 0x5: /* DIVU */
                     out->kind = instr_divu;
-                    return true;
+                    goto ok;
                 case 0x6: /* REM */
                     out->kind = instr_rem;
-                    return true;
+                    goto ok;
                 case 0x7: /* REMU */
                     out->kind = instr_remu;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -914,10 +916,10 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (funct3) {
                 case 0x0: /* SUB */
                     out->kind = instr_sub;
-                    return true;
+                    goto ok;
                 case 0x5: /* SRA */
                     out->kind = instr_sra;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -929,7 +931,7 @@ bool decode_instr(u32 raw, Instr *out)
         case 0xd: /* LUI */
             *out = instr_utype_read(raw);
             out->kind = instr_lui;
-            return true;
+            goto ok;
         case 0xe: {
             *out = instr_rtype_read(raw);
 
@@ -941,13 +943,13 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (funct3) {
                 case 0x0: /* ADDW */
                     out->kind = instr_addw;
-                    return true;
+                    goto ok;
                 case 0x1: /* SLLW */
                     out->kind = instr_sllw;
-                    return true;
+                    goto ok;
                 case 0x5: /* SRLW */
                     out->kind = instr_srlw;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -956,19 +958,19 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (funct3) {
                 case 0x0: /* MULW */
                     out->kind = instr_mulw;
-                    return true;
+                    goto ok;
                 case 0x4: /* DIVW */
                     out->kind = instr_divw;
-                    return true;
+                    goto ok;
                 case 0x5: /* DIVUW */
                     out->kind = instr_divuw;
-                    return true;
+                    goto ok;
                 case 0x6: /* REMW */
                     out->kind = instr_remw;
-                    return true;
+                    goto ok;
                 case 0x7: /* REMUW */
                     out->kind = instr_remuw;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -977,10 +979,10 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (funct3) {
                 case 0x0: /* SUBW */
                     out->kind = instr_subw;
-                    return true;
+                    goto ok;
                 case 0x5: /* SRAW */
                     out->kind = instr_sraw;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -996,10 +998,10 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct2) {
             case 0x0: /* FMADD.S */
                 out->kind = instr_fmadd_s;
-                return true;
+                goto ok;
             case 0x1: /* FMADD.D */
                 out->kind = instr_fmadd_d;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -1011,10 +1013,10 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct2) {
             case 0x0: /* FMSUB.S */
                 out->kind = instr_fmsub_s;
-                return true;
+                goto ok;
             case 0x1: /* FMSUB.D */
                 out->kind = instr_fmsub_d;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -1026,10 +1028,10 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct2) {
             case 0x0: /* FNMSUB.S */
                 out->kind = instr_fnmsub_s;
-                return true;
+                goto ok;
             case 0x1: /* FNMSUB.D */
                 out->kind = instr_fnmsub_d;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -1041,10 +1043,10 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct2) {
             case 0x0: /* FNMADD.S */
                 out->kind = instr_fnmadd_s;
-                return true;
+                goto ok;
             case 0x1: /* FNMADD.D */
                 out->kind = instr_fnmadd_d;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -1056,41 +1058,41 @@ bool decode_instr(u32 raw, Instr *out)
             switch (funct7) {
             case 0x0:  /* FADD.S */
                 out->kind = instr_fadd_s;
-                return true;
+                goto ok;
             case 0x1:  /* FADD.D */
                 out->kind = instr_fadd_d;
-                return true;
+                goto ok;
             case 0x4:  /* FSUB.S */
                 out->kind = instr_fsub_s;
-                return true;
+                goto ok;
             case 0x5:  /* FSUB.D */
                 out->kind = instr_fsub_d;
-                return true;
+                goto ok;
             case 0x8:  /* FMUL.S */
                 out->kind = instr_fmul_s;
-                return true;
+                goto ok;
             case 0x9:  /* FMUL.D */
                 out->kind = instr_fmul_d;
-                return true;
+                goto ok;
             case 0xc:  /* FDIV.S */
                 out->kind = instr_fdiv_s;
-                return true;
+                goto ok;
             case 0xd:  /* FDIV.D */
                 out->kind = instr_fdiv_d;
-                return true;
+                goto ok;
             case 0x10: {
                 u32 funct3 = FUNCT3(raw);
 
                 switch (funct3) {
                 case 0x0: /* FSGNJ.S */
                     out->kind = instr_fsgnj_s;
-                    return true;
+                    goto ok;
                 case 0x1: /* FSGNJN.S */
                     out->kind = instr_fsgnjn_s;
-                    return true;
+                    goto ok;
                 case 0x2: /* FSGNJX.S */
                     out->kind = instr_fsgnjx_s;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -1101,13 +1103,13 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (funct3) {
                 case 0x0: /* FSGNJ.D */
                     out->kind = instr_fsgnj_d;
-                    return true;
+                    goto ok;
                 case 0x1: /* FSGNJN.D */
                     out->kind = instr_fsgnjn_d;
-                    return true;
+                    goto ok;
                 case 0x2: /* FSGNJX.D */
                     out->kind = instr_fsgnjx_d;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -1118,10 +1120,10 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (funct3) {
                 case 0x0: /* FMIN.S */
                     out->kind = instr_fmin_s;
-                    return true;
+                    goto ok;
                 case 0x1: /* FMAX.S */
                     out->kind = instr_fmax_s;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -1132,47 +1134,43 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (funct3) {
                 case 0x0: /* FMIN.D */
                     out->kind = instr_fmin_d;
-                    return true;
+                    goto ok;
                 case 0x1: /* FMAX.D */
                     out->kind = instr_fmax_d;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
             unreachable();
             case 0x20: /* FCVT.S.D */
-                if (unlikely(RS2(raw) != 1))
-                    return false;
+                assert(RS2(raw) == 1);
                 out->kind = instr_fcvt_s_d;
-                return true;
+                goto ok;
             case 0x21: /* FCVT.D.S */
-                if (unlikely(RS2(raw) != 0))
-                    return false;
+                assert(RS2(raw) == 0);
                 out->kind = instr_fcvt_d_s;
-                return true;
+                goto ok;
             case 0x2c: /* FSQRT.S */
-                if (unlikely(out->rs2 != 0))
-                    return false;
+                assert(out->rs2 == 0);
                 out->kind = instr_fsqrt_s;
-                return true;
+                goto ok;
             case 0x2d: /* FSQRT.D */
-                if (unlikely(out->rs2 != 0))
-                    return false;
+                assert(out->rs2 == 0);
                 out->kind = instr_fsqrt_d;
-                return true;
+                goto ok;
             case 0x50: {
                 u32 funct3 = FUNCT3(raw);
 
                 switch (funct3) {
                 case 0x0: /* FLE.S */
                     out->kind = instr_fle_s;
-                    return true;
+                    goto ok;
                 case 0x1: /* FLT.S */
                     out->kind = instr_flt_s;
-                    return true;
+                    goto ok;
                 case 0x2: /* FEQ.S */
                     out->kind = instr_feq_s;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -1183,13 +1181,13 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (funct3) {
                 case 0x0: /* FLE.D */
                     out->kind = instr_fle_d;
-                    return true;
+                    goto ok;
                 case 0x1: /* FLT.D */
                     out->kind = instr_flt_d;
-                    return true;
+                    goto ok;
                 case 0x2: /* FEQ.D */
                     out->kind = instr_feq_d;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -1200,16 +1198,16 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (rs2) {
                 case 0x0: /* FCVT.W.S */
                     out->kind = instr_fcvt_w_s;
-                    return true;
+                    goto ok;
                 case 0x1: /* FCVT.WU.S */
                     out->kind = instr_fcvt_wu_s;
-                    return true;
+                    goto ok;
                 case 0x2: /* FCVT.L.S */
                     out->kind = instr_fcvt_l_s;
-                    return true;
+                    goto ok;
                 case 0x3: /* FCVT.LU.S */
                     out->kind = instr_fcvt_lu_s;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -1220,16 +1218,16 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (rs2) {
                 case 0x0: /* FCVT.W.D */
                     out->kind = instr_fcvt_w_d;
-                    return true;
+                    goto ok;
                 case 0x1: /* FCVT.WU.D */
                     out->kind = instr_fcvt_wu_d;
-                    return true;
+                    goto ok;
                 case 0x2: /* FCVT.L.D */
                     out->kind = instr_fcvt_l_d;
-                    return true;
+                    goto ok;
                 case 0x3: /* FCVT.LU.D */
                     out->kind = instr_fcvt_lu_d;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -1240,16 +1238,16 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (rs2) {
                 case 0x0: /* FCVT.S.W */
                     out->kind = instr_fcvt_s_w;
-                    return true;
+                    goto ok;
                 case 0x1: /* FCVT.S.WU */
                     out->kind = instr_fcvt_s_wu;
-                    return true;
+                    goto ok;
                 case 0x2: /* FCVT.S.L */
                     out->kind = instr_fcvt_s_l;
-                    return true;
+                    goto ok;
                 case 0x3: /* FCVT.S.LU */
                     out->kind = instr_fcvt_s_lu;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
@@ -1260,62 +1258,58 @@ bool decode_instr(u32 raw, Instr *out)
                 switch (rs2) {
                 case 0x0: /* FCVT.D.W */
                     out->kind = instr_fcvt_d_w;
-                    return true;
+                    goto ok;
                 case 0x1: /* FCVT.D.WU */
                     out->kind = instr_fcvt_d_wu;
-                    return true;
+                    goto ok;
                 case 0x2: /* FCVT.D.L */
                     out->kind = instr_fcvt_d_l;
-                    return true;
+                    goto ok;
                 case 0x3: /* FCVT.D.LU */
                     out->kind = instr_fcvt_d_lu;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
             unreachable();
             case 0x70: {
-                if (unlikely(RS2(raw) != 0))
-                    return false;
+                assert(RS2(raw) == 0);
                 u32 funct3 = FUNCT3(raw);
 
                 switch (funct3) {
                 case 0x0: /* FMV.X.W */
                     out->kind = instr_fmv_x_w;
-                    return true;
+                    goto ok;
                 case 0x1: /* FCLASS.S */
                     out->kind = instr_fclass_s;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
             unreachable();
             case 0x71: {
-                if (unlikely(RS2(raw) != 0))
-                    return false;
+                assert(RS2(raw) == 0);
                 u32 funct3 = FUNCT3(raw);
 
                 switch (funct3) {
                 case 0x0: /* FMV.X.D */
                     out->kind = instr_fmv_x_d;
-                    return true;
+                    goto ok;
                 case 0x1: /* FCLASS.D */
                     out->kind = instr_fclass_d;
-                    return true;
+                    goto ok;
                 default: unreachable();
                 }
             }
             unreachable();
             case 0x78: /* FMV_W_X */
-                if (unlikely(RS2(raw) != 0 || FUNCT3(raw) != 0))
-                    return false;
+                assert(RS2(raw) == 0 && FUNCT3(raw) == 0);
                 out->kind = instr_fmv_w_x;
-                return true;
+                goto ok;
             case 0x79: /* FMV_D_X */
-                if (unlikely(RS2(raw) != 0 || FUNCT3(raw) != 0))
-                    return false;
+                assert(RS2(raw) == 0 && FUNCT3(raw) == 0);
                 out->kind = instr_fmv_d_x;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -1328,27 +1322,27 @@ bool decode_instr(u32 raw, Instr *out)
             case 0x0: /* BEQ */
                 out->kind = instr_beq;
                 // out->cfc = true;
-                return true;
+                goto ok;
             case 0x1: /* BNE */
                 out->kind = instr_bne;
                 // out->cfc = true;
-                return true;
+                goto ok;
             case 0x4: /* BLT */
                 out->kind = instr_blt;
                 // out->cfc = true;
-                return true;
+                goto ok;
             case 0x5: /* BGE */
                 out->kind = instr_bge;
                 // out->cfc = true;
-                return true;
+                goto ok;
             case 0x6: /* BLTU */
                 out->kind = instr_bltu;
                 // out->cfc = true;
-                return true;
+                goto ok;
             case 0x7: /* BGEU */
                 out->kind = instr_bgeu;
                 // out->cfc = true;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -1357,17 +1351,18 @@ bool decode_instr(u32 raw, Instr *out)
             *out = instr_itype_read(raw);
             out->kind = instr_jalr;
             out->cfc = true;
-            return true;
+            goto ok;
         case 0x1b: /* JAL */
             *out = instr_jtype_read(raw);
             out->kind = instr_jal;
             out->cfc = true;
-            return true;
+            goto ok;
         case 0x1c: {
             if (raw == 0x73) { /* ECALL */
                 out->kind = instr_ecall;
                 out->cfc = true;
-                return true;
+                // out->rvc = false;
+                goto ok;
             }
 
             u32 funct3 = FUNCT3(raw);
@@ -1375,22 +1370,22 @@ bool decode_instr(u32 raw, Instr *out)
             switch(funct3) {
             case 0x1: /* CSRRW */
                 out->kind = instr_csrrw;
-                return true;
+                goto ok;
             case 0x2: /* CSRRS */
                 out->kind = instr_csrrs;
-                return true;
+                goto ok;
             case 0x3: /* CSRRC */
                 out->kind = instr_csrrc;
-                return true;
+                goto ok;
             case 0x5: /* CSRRWI */
                 out->kind = instr_csrrwi;
-                return true;
+                goto ok;
             case 0x6: /* CSRRSI */
                 out->kind = instr_csrrsi;
-                return true;
+                goto ok;
             case 0x7: /* CSRRCI */
                 out->kind = instr_csrrci;
-                return true;
+                goto ok;
             default: unreachable();
             }
         }
@@ -1401,4 +1396,9 @@ bool decode_instr(u32 raw, Instr *out)
     unreachable();
     default: unreachable();
     }
+
+ok:
+    out->curr_pc = pc;
+    out->next_pc = out->rvc ? pc + 2 : pc + 4;
+    return;
 }

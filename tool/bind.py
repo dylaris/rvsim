@@ -3,9 +3,11 @@ import os
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
 lib_path = os.path.join(script_dir, "../librvsim.so")
-
 lib = ctypes.CDLL(lib_path)
 
+# -----------------------------------------------------------------------------
+# Instr
+# -----------------------------------------------------------------------------
 class Instr(ctypes.Structure):
     pass
 
@@ -15,6 +17,39 @@ lib.decode_instr.restype = ctypes.c_bool
 lib.instr_to_string.argtypes = [ctypes.POINTER(Instr)]
 lib.instr_to_string.restype = ctypes.c_char_p
 
+# -----------------------------------------------------------------------------
+# Machine (opaque pointer)
+# -----------------------------------------------------------------------------
+class Machine(ctypes.Structure):
+    pass
+
+lib.machine_load_bin.argtypes = [ctypes.POINTER(Machine), ctypes.c_char_p, ctypes.c_uint64]
+lib.machine_load_bin.restype = None
+
+lib.machine_load_elf.argtypes = [ctypes.POINTER(Machine), ctypes.c_char_p]
+lib.machine_load_elf.restype = None
+
+lib.machine_init_stack_bin.argtypes = [ctypes.POINTER(Machine), ctypes.c_uint64]
+lib.machine_init_stack_bin.restype = None
+
+lib.machine_init_stack_elf.argtypes = [ctypes.POINTER(Machine), ctypes.c_uint64, ctypes.c_int, ctypes.POINTER(ctypes.c_char_p)]
+lib.machine_init_stack_elf.restype = None
+
+lib.machine_add_breakpoint.argtypes = [ctypes.POINTER(Machine), ctypes.c_uint64]
+lib.machine_add_breakpoint.restype = None
+
+lib.machine_del_breakpoint.argtypes = [ctypes.POINTER(Machine), ctypes.c_uint64]
+lib.machine_del_breakpoint.restype = None
+
+lib.machine_check_breakpoint.argtypes = [ctypes.POINTER(Machine), ctypes.c_uint64]
+lib.machine_check_breakpoint.restype = ctypes.c_bool
+
+lib.interp_single.argtypes = [ctypes.POINTER(Machine)]
+lib.interp_single.restype = None
+
+# -----------------------------------------------------------------------------
+# Register definitions
+# -----------------------------------------------------------------------------
 GPR_ZERO = 0
 GPR_RA   = 1
 GPR_SP   = 2
@@ -100,6 +135,9 @@ FLOW_SKIP_CODEGEN   = 3
 FLOW_ECALL          = TRAP_MASK | 1
 FLOW_ILLEGAL_INSTR  = TRAP_MASK | 2
 
+# -----------------------------------------------------------------------------
+# Flow / FPR / CPUState
+# -----------------------------------------------------------------------------
 class Flow(ctypes.Structure):
     _fields_ = [
         ("pc", ctypes.c_uint64),
@@ -117,36 +155,31 @@ class FPR(ctypes.Union):
 class CPUState(ctypes.Structure):
     _fields_ = [
         ("gprs", ctypes.c_uint64 * NUM_GPRS),
-        ("pc", ctypes.c_uint64),
+        ("pc",   ctypes.c_uint64),
         ("flow", Flow),
         ("fprs", FPR * NUM_FPRS),
     ]
 
-    def get_gpr(self, index):
-        if not 0 <= index < NUM_GPRS:
-            raise ValueError(f"invalid GPR index: {index}")
-        return self.gprs[index]
+    def get_gpr(self, idx):
+        if not (0 <= idx < NUM_GPRS):
+            raise ValueError(f"bad GPR {idx}")
+        return self.gprs[idx]
 
-    def get_fpr(self, index, view):
-        if not 0 <= index < NUM_FPRS:
-            raise ValueError(f"invalid FPR index: {index}")
-        if view == FPR_VIEW_Q:
-            return self.fprs[index].q
-        elif view == FPR_VIEW_D:
-            return self.fprs[index].d
-        elif view == FPR_VIEW_W:
-            return self.fprs[index].w
-        elif view == FPR_VIEW_S:
-            return self.fprs[index].s
-        else:
-            raise ValueError(f"invalid FPR view : {view}")
+    def get_fpr(self, idx, view):
+        if not (0 <= idx < NUM_FPRS):
+            raise ValueError(f"bad FPR {idx}")
+        if view == FPR_VIEW_Q: return self.fprs[idx].q
+        if view == FPR_VIEW_D: return self.fprs[idx].d
+        if view == FPR_VIEW_W: return self.fprs[idx].w
+        if view == FPR_VIEW_S: return self.fprs[idx].s
+        raise ValueError(f"bad view {view}")
 
-    def get_flow_ctl(self):
-        return self.flow.ctl
+    def get_pc(self):
+        return self.pc
 
-    def get_flow_pc(self):
-        return self.flow.pc
-
+# -----------------------------------------------------------------------------
+# Instr
+# -----------------------------------------------------------------------------
 Instr._fields_ = [
     ("rd",   ctypes.c_int8),
     ("rs1",  ctypes.c_int8),
@@ -158,11 +191,77 @@ Instr._fields_ = [
     ("cfc",  ctypes.c_bool),
 ]
 
-def decode(self, raw):
+def instr_decode(self, raw):
     return lib.decode_instr(raw, ctypes.byref(self))
 
-def __str__(self):
-    return lib.instr_to_string(ctypes.byref(self))
+def instr_str(self):
+    return lib.instr_to_string(ctypes.byref(self)).decode()
 
-Instr.decode = decode
-Instr.__str__ = __str__
+Instr.decode = instr_decode
+Instr.__str__ = instr_str
+
+# -----------------------------------------------------------------------------
+# Breakpoints
+# -----------------------------------------------------------------------------
+class Breakpoints(ctypes.Structure):
+    _fields_ = [
+        ("items",    ctypes.POINTER(ctypes.c_uint64)),
+        ("count",    ctypes.c_uint64),
+        ("capacity", ctypes.c_uint64),
+    ]
+
+# -----------------------------------------------------------------------------
+# Machine
+# -----------------------------------------------------------------------------
+Machine._fields_ = [
+    ("state",       CPUState),
+    ("mem",         ctypes.c_void_p),
+    ("engine",      ctypes.c_void_p),
+    ("tbcache",     ctypes.c_void_p),
+    ("dbcache",     ctypes.c_void_p),
+    ("codegen",     ctypes.c_void_p),
+    ("breakpoints", Breakpoints),
+]
+
+def load(self, filename, elf=True, argv=None, base=0):
+    path = filename.encode("utf-8")
+    ptr = ctypes.byref(self)
+
+    if elf:
+        lib.machine_load_elf(ptr, path)
+
+        argc = 0
+        argv_c = None
+        if argv:
+            argc = len(argv)
+            argv_c = (ctypes.c_char_p * argc)()
+            for i, s in enumerate(argv):
+                argv_c[i] = s.encode("utf-8")
+
+        lib.machine_init_stack_elf(
+            ptr,
+            ctypes.c_uint64(16 << 20),
+            ctypes.c_int(argc),
+            argv_c
+        )
+    else:
+        lib.machine_load_bin(ptr, path, ctypes.c_uint64(base))
+        lib.machine_init_stack_bin(ptr, ctypes.c_uint64(64 << 10))
+
+def add_breakpoint(self, addr):
+    lib.machine_add_breakpoint(ctypes.byref(self), ctypes.c_uint64(addr))
+
+def del_breakpoint(self, idx):
+    lib.machine_del_breakpoint(ctypes.byref(self), ctypes.c_uint64(idx))
+
+def check_breakpoint(self, addr):
+    return lib.machine_check_breakpoint(ctypes.byref(self), ctypes.c_uint64(addr))
+
+def interp(self):
+    lib.interp_single(ctypes.byref(self))
+
+Machine.load             = load
+Machine.add_breakpoint   = add_breakpoint
+Machine.del_breakpoint   = del_breakpoint
+Machine.check_breakpoint = check_breakpoint
+Machine.interp           = interp

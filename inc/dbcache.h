@@ -5,20 +5,21 @@
 
 #include "decode.h"
 
-#define DBCACHE_HOT_COUNT 10000
+#define DBCACHE_SIZE 4096
+#define DBCACHE_MAX_PROBE_STEPS DBCACHE_SIZE
 
 typedef struct {
     u64 pc;
+    u64 next_pc;
     Instr *items;
     size_t count;
     size_t capacity;
 } DBCacheEntry;
 
 typedef struct {
-    DBCacheEntry *items;
-    size_t count;
-    size_t capacity;
+    DBCacheEntry table[DBCACHE_SIZE];
     DBCacheEntry *last_accessed;
+    bool full;
 } DBCache;
 
 DBCache *dbcache_create(void);

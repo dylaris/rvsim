@@ -6,10 +6,10 @@ void machine_load_bin(Machine *machine, const char *prog, GuestVAddr base)
     FILE *f = fopen(prog, "rb");
     if (!f) fatalf("fopen: %s", strerror(errno));
 
-    mem_load_bin(&machine->mem, f, base);
+    mem_load_bin(machine->mem, f, base);
 
-    cpu_set_pc(&machine->state, machine->mem.entry);
-    cpu_set_flow_pc(&machine->state, machine->mem.entry);
+    cpu_set_pc(&machine->state, machine->mem->entry);
+    cpu_set_flow_pc(&machine->state, machine->mem->entry);
 
     fclose(f);
 }
@@ -19,17 +19,17 @@ void machine_load_elf(Machine *machine, const char *prog)
     FILE *f = fopen(prog, "rb");
     if (!f) fatalf("fopen: %s", strerror(errno));
 
-    mem_load_elf(&machine->mem, f);
+    mem_load_elf(machine->mem, f);
 
-    cpu_set_pc(&machine->state, machine->mem.entry);
-    cpu_set_flow_pc(&machine->state, machine->mem.entry);
+    cpu_set_pc(&machine->state, machine->mem->entry);
+    cpu_set_flow_pc(&machine->state, machine->mem->entry);
 
     fclose(f);
 }
 
 void machine_init_stack_elf(Machine *machine, u64 stack_size, int argc, char **argv)
 {
-    GuestVAddr stack_base = mem_alloc(&machine->mem, stack_size);
+    GuestVAddr stack_base = mem_alloc(machine->mem, stack_size);
     GuestVAddr stack_end  = stack_base + stack_size;
 
     cpu_set_gpr(&machine->state, GPR_SP, stack_end);
@@ -45,7 +45,7 @@ void machine_init_stack_elf(Machine *machine, u64 stack_size, int argc, char **a
 
     for (int i = argc - 1; i >= 0; i--) {
         size_t len = strlen(argv[i]);
-        GuestVAddr addr = mem_alloc(&machine->mem, len + 1);
+        GuestVAddr addr = mem_alloc(machine->mem, len + 1);
         mem_write(addr, (void *) argv[i], len);
 
         stack_end -= 8; // argv[i]
@@ -60,7 +60,7 @@ void machine_init_stack_elf(Machine *machine, u64 stack_size, int argc, char **a
 
 void machine_init_stack_bin(Machine *machine, u64 stack_size)
 {
-    GuestVAddr stack_base = mem_alloc(&machine->mem, stack_size);
+    GuestVAddr stack_base = mem_alloc(machine->mem, stack_size);
     GuestVAddr stack_end  = stack_base + stack_size;
     cpu_set_gpr(&machine->state, GPR_SP, stack_end);
 }
@@ -84,59 +84,51 @@ void machine_trap(Machine *machine)
 
 void machine_step(Machine *machine)
 {
-    while (true) {
-#ifdef INTERP
-    machine->engine = interp_block;
-#else
-    #if defined(ENABLE_DBCACHE) || defined(ENABLE_TBCACHE)
-        u64 pc = cpu_get_pc(&machine->state);
-        u64 hit_count = profile_block_hit(pc);
-    #endif
-
-    #ifdef ENABLE_DBCACHE
-        DBCacheEntry *dbentry = dbcache_lookup(machine->dbcache, pc);
-        if (!dbentry && hit_count >= DBCACHE_HOT_COUNT) {
-            dbentry = dbcache_add(machine->dbcache, pc);
-        }
-        machine->dbcache->last_accessed = dbentry;
-        machine->engine = interp_block;
-    #endif // ENABLE_DBCACHE
-
-    #ifdef ENABLE_TBCACHE
-        TBCacheEntry *tbentry = tbcache_lookup(machine->tbcache, pc);
-        if (!tbentry->code && hit_count >= TBCACHE_HOT_COUNT) {
-            tbentry->code = gencode(machine->codegen, machine->tbcache, pc);
-        }
-        machine->engine = tbentry->code != NULL ? (BlockExec) tbentry->code : interp_block;
-    #endif // ENABLE_TBCACHE
-#endif // INTERP
-
-exec:
-        cpu_reset_flow_ctl(&machine->state);
-        machine->engine(machine);
-
-#ifdef ENABLE_DBCACHE
-        machine->dbcache->last_accessed = NULL;
-#endif // ENABLE_DBCACHE
-
-        switch (cpu_get_flow_ctl(&machine->state)) {
-        case FLOW_BRANCH:
-        case FLOW_JUMP:
-            cpu_commit_pc(&machine->state);
-            break;
-        case FLOW_SKIP_CODEGEN:
-            machine->engine = interp_block;
-            cpu_commit_pc(&machine->state);
-            goto exec;
-        case FLOW_ECALL:
-            return;
-        default:
-            printf("%d\n", cpu_get_flow_ctl(&machine->state));
-            unreachable();
-        }
-    }
+//     while (true) {
+// #ifdef INTERP
+//     machine->engine = interp_block;
+// #else
+//     #if defined(ENABLE_DBCACHE) || defined(ENABLE_TBCACHE)
+//         u64 pc = cpu_get_pc(&machine->state);
+//         u64 hit_count = profile_block_hit(pc);
+//     #endif
+//
+//     #ifdef ENABLE_DBCACHE
+//         DBCacheEntry *dbentry = dbcache_lookup(machine->dbcache, pc);
+//         if (!dbentry && !machine->dbcache->full) dbentry = dbcache_add(machine->dbcache, pc);
+//         machine->engine = interp_block;
+//     #endif // ENABLE_DBCACHE
+//
+//     #ifdef ENABLE_TBCACHE
+//         TBCacheEntry *tbentry = tbcache_lookup(machine->tbcache, pc);
+//         if (!tbentry->code && hit_count >= TBCACHE_HOT_COUNT) {
+//             tbentry->code = gencode(machine->codegen, machine->tbcache, pc);
+//         }
+//         machine->engine = tbentry->code != NULL ? (BlockExec) tbentry->code : interp_block;
+//     #endif // ENABLE_TBCACHE
+// #endif // INTERP
+//
+// exec:
+//         cpu_reset_flow_ctl(&machine->state);
+//         machine->engine(machine);
+//
+//         switch (cpu_get_flow_ctl(&machine->state)) {
+//         case FLOW_BRANCH:
+//         case FLOW_JUMP:
+//             cpu_commit_pc(&machine->state);
+//             break;
+//         case FLOW_SKIP_CODEGEN:
+//             machine->engine = interp_block;
+//             cpu_commit_pc(&machine->state);
+//             goto exec;
+//         case FLOW_ECALL:
+//             return;
+//         default:
+//             printf("%d\n", cpu_get_flow_ctl(&machine->state));
+//             unreachable();
+//         }
+//     }
 }
-
 
 void machine_print(const Machine *machine)
 {
@@ -183,7 +175,7 @@ Machine machine_create(void)
 {
     return (Machine) {
         .state       = (CPUState) {0},
-        .mem         = (Memory) {0},
+        .mem         = mem_create(),
         .engine      = NULL,
         .tbcache     = tbcache_create(16),
         .dbcache     = dbcache_create(),
@@ -195,7 +187,7 @@ Machine machine_create(void)
 void machine_destroy(Machine *machine)
 {
     profile_free();
-    mem_free(&machine->mem);
+    mem_destroy(machine->mem);
     da_free(machine->breakpoints);
     codegen_destroy(machine->codegen);
     tbcache_destroy(machine->tbcache);
@@ -267,7 +259,7 @@ void machine_repl(Machine *machine)
         case 'c':
             printf("[cont] pc = 0x%016lx\n", cpu_get_pc(&machine->state));
             do {
-                interp_single(machine);
+                interp(machine);
             } while (!machine_check_breakpoint(machine, cpu_get_pc(&machine->state)));
             break;
 
@@ -317,7 +309,7 @@ void machine_repl(Machine *machine)
 
         case 'n':
             printf("[step] pc = 0x%016lx\n", cpu_get_pc(&machine->state));
-            interp_single(machine);
+            interp(machine);
             break;
 
         case 'q':

@@ -101,10 +101,10 @@ static u64 sys_brk(Machine *machine)
 {
     GET(addr, GPR_A0);
     if (addr == 0)
-        addr = machine->mem.heap_brk;
-    assert(addr >= machine->mem.heap_base);
-    i64 increment = (i64) addr - machine->mem.heap_brk;
-    mem_alloc(&machine->mem, increment);
+        addr = machine->mem->heap_brk;
+    assert(addr >= machine->mem->heap_base);
+    i64 increment = (i64) addr - machine->mem->heap_brk;
+    mem_alloc(machine->mem, increment);
     return addr;
 }
 

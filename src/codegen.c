@@ -1,4 +1,4 @@
-#include "instr_template.h"
+#include "template.h"
 #include "codegen.h"
 #include "libtcc.h"
 
@@ -480,8 +480,7 @@ void *gencode(CodeGenerator *cg, TBCache *cache, u64 start_pc)
         sb_appendf(sb, "instr_%lx: {\n", pc);
 
         Instr instr = {0};
-        u32 raw = mem_read_u32(pc);
-        assert(decode_instr(raw, &instr));
+        decode_instr(pc, &instr);
 
         codegen_table[instr.kind](sb, &instr, links, pc);
 

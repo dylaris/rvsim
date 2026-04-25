@@ -14,7 +14,7 @@ struct Machine {
     // CPUState must be the first member, so that
     // (Machine *) can convert to (CPUState *) safely
     CPUState state;
-    Memory mem;
+    Memory *mem;
     BlockExec engine;
     TBCache *tbcache;
     DBCache *dbcache;

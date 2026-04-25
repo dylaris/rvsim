@@ -140,9 +140,17 @@ GuestVAddr mem_alloc(Memory *mem, i64 size)
     return res;
 }
 
-void mem_free(Memory *mem)
+void mem_destroy(Memory *mem)
 {
     u64 len = mem->host_end - mem->host_begin;
     if (len > 0) munmap((void *) mem->host_begin, len);
-    memset(mem, 0, sizeof(*mem));
+    free(mem);
+}
+
+Memory *mem_create(void)
+{
+    Memory *mem = malloc(sizeof(Memory));
+    assert(mem && "run out of memory");
+    memset(mem, 0, sizeof(Memory));
+    return mem;
 }

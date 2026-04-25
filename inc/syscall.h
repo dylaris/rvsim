@@ -3,7 +3,7 @@
 
 #include "machine.h"
 
-#include "syscall_template.h"
+#include "template.h"
 
 #define OLD_SYSCALL_THRESHOLD 1024
 

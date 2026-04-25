@@ -16,10 +16,11 @@ typedef struct {
     GuestVAddr heap_end;    // Guest heap end address
 } Memory;
 
+Memory *mem_create(void);
+void mem_destroy(Memory *mem);
 void mem_load_elf(Memory *mem, FILE *f);
 void mem_load_bin(Memory *mem, FILE *f, GuestVAddr base);
 GuestVAddr mem_alloc(Memory *mem, i64 size);
-void mem_free(Memory *mem);
 
 #define mem_write(addr, data, len)  memcpy((void*)mmu_to_host(addr), data, len)
 #define mem_read(addr, buf, len)    memcpy(buf, (void*)mmu_to_host(addr), len)

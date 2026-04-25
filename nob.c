@@ -4,10 +4,9 @@
 
 typedef enum {
     HELP,
-    INTERP,
+    PURE,
     DBCACHE,
     TBCACHE,
-    CACHE,
     DEBUG,
     LIBRARY,
     CLEAN,
@@ -20,10 +19,9 @@ static Flag what_flag(int argc, char **argv)
     if (argc > 2) return INVALID;
     const char *flag_str = argv[1];
     if (strcmp(flag_str, "help")    == 0) return HELP;
-    if (strcmp(flag_str, "interp")  == 0) return INTERP;
+    if (strcmp(flag_str, "pure")    == 0) return PURE;
     if (strcmp(flag_str, "dbcache") == 0) return DBCACHE;
     if (strcmp(flag_str, "tbcache") == 0) return TBCACHE;
-    if (strcmp(flag_str, "cache")   == 0) return CACHE;
     if (strcmp(flag_str, "debug")   == 0) return DEBUG;
     if (strcmp(flag_str, "lib")     == 0) return LIBRARY;
     if (strcmp(flag_str, "clean")   == 0) return CLEAN;
@@ -38,7 +36,7 @@ static void print_help_message(void)
         "======================================\n"
         "  help:     Display this information  \n"
         "  clean:    Clean generated files     \n"
-        "  interp:   Interp only               \n"
+        "  pure:     Interp only               \n"
         "  dbcache:  Interp with decode cache  \n"
         "  tbcache:  Interp with code cache    \n"
         "  lib:      Build library             \n"
@@ -66,30 +64,23 @@ static struct {
 static const char *input = NULL;
 static const char *output = NULL;
 
-void build_interp(void)
+void build_pure(void)
 {
-    da_appendw(&cflags, "-O3", "-DINTERP");
+    da_appendw(&cflags, "-O3", "-DPURE");
     input = SOURCE"one.c";
     output = "rvsim";
 }
 
 void build_dbcache(void)
 {
-    da_appendw(&cflags, "-O3", "-DENABLE_DBCACHE");
+    da_appendw(&cflags, "-O3", "-DDBCACHE");
     input = SOURCE"one.c";
     output = "rvsim";
 }
 
 void build_tbcache(void)
 {
-    da_appendw(&cflags, "-O3", "-DENABLE_TBCACHE");
-    input = SOURCE"one.c";
-    output = "rvsim";
-}
-
-void build_cache(void)
-{
-    da_appendw(&cflags, "-O3", "-DENABLE_TBCACHE", "-DENABLE_DBCACHE");
+    da_appendw(&cflags, "-O3", "-DTBCACHE");
     input = SOURCE"one.c";
     output = "rvsim";
 }
@@ -124,7 +115,7 @@ int main(int argc, char **argv)
 {
     NOB_GO_REBUILD_URSELF(argc, argv);
 
-    da_appendw(&cflags, "-Wall", "-Wextra", "-Wno-unused-function", "-Wno-unused-parameter");
+    da_appendw(&cflags, "-Wall", "-Wextra", "-Wno-unused-function", "-Wno-unused-parameter", "-Wno-unused-variable");
     da_appendw(&cflags, "-I"INCLUDE, "-I3rdparty");
     da_appendw(&cldflags, "-L3rdparty", "-lm", "-l:libtcc.a");
 
@@ -134,18 +125,15 @@ int main(int argc, char **argv)
     switch (flag) {
     case HELP:
         print_help_message();
-        break;
-    case INTERP:
-        build_interp();
+        return 0;
+    case PURE:
+        build_pure();
         break;
     case DBCACHE:
         build_dbcache();
         break;
     case TBCACHE:
         build_tbcache();
-        break;
-    case CACHE:
-        build_cache();
         break;
     case DEBUG:
         build_debug();

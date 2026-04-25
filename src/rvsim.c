@@ -21,11 +21,11 @@ int main(int argc, char **argv)
 
 #ifdef DEBUG
 
-    printf("entry address:   0x%016lx\n", machine.mem.entry);
+    printf("entry address:   0x%016lx\n", machine.mem->entry);
     printf("machine address: 0x%016lx\n", (HostVAddr) &machine);
 
     // Run debug repl first
-    machine_add_breakpoint(&machine, machine.mem.entry);
+    machine_add_breakpoint(&machine, machine.mem->entry);
     printf("\n===== RISC-V Simulator REPL =====\n");
 
     machine_repl(&machine);
@@ -33,7 +33,8 @@ int main(int argc, char **argv)
 #else
 
     while (true) {
-        machine_step(&machine);
+        // machine_step(&machine);
+        interp(&machine);
         if (IS_TRAP(cpu_get_flow_ctl(&machine.state)))
             machine_trap(&machine);
         cpu_commit_pc(&machine.state);

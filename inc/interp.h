@@ -4,8 +4,7 @@
 #include <math.h>
 #include "machine.h"
 
-void interp_single(Machine *machine);
-void interp_block(Machine *machine);
+void interp(Machine *machine);
 
 /*
  * Help functions below

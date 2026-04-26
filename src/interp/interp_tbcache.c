@@ -1,18 +1,6 @@
 #include "interp.h"
 #include "decode.h"
 
-#ifdef INTERP
-    #define SIGNATURE(name) name:
-    #define GEN(name, tag, a1, a2, a3, a4) \
-        GEN_##tag(name, a1, a2, a3, a4) \
-        decode_instr(instr->next_pc, instr); \
-        goto *dispatch_table[instr->kind];
-#else
-    #define SIGNATURE(name) static void interp__##name(CPUState *state, Instr *instr)
-    #define GEN(name, tag, a1, a2, a3, a4) GEN_##tag(name, a1, a2, a3, a4)
-#endif
-
-
 #define GEN_EMPTY(name, a1, a2, a3, a4) \
 SIGNATURE(name) { }
 
@@ -79,7 +67,7 @@ SIGNATURE(name) \
         instr->cfc = true; \
         cpu_set_flow_ctl(state, FLOW_BRANCH); \
         cpu_set_flow_pc(state, addr); \
-        instr->next_pc = addr; \
+        link_pc = addr; \
     } \
 }
 
@@ -92,15 +80,14 @@ SIGNATURE(name) \
     cpu_set_gpr(state, instr->rd, instr->next_pc); \
     cpu_set_flow_ctl(state, FLOW_JUMP); \
     cpu_set_flow_pc(state, addr); \
-    instr->next_pc = addr; \
+    link_pc = addr; \
 }
 
 #define GEN_ECALL(name, a1, a2, a3, a4) \
 SIGNATURE(name) \
 { \
-    GuestVAddr addr = instr->curr_pc + 4; \
     cpu_set_flow_ctl(state, FLOW_ECALL); \
-    cpu_set_flow_pc(state, addr); \
+    cpu_set_flow_pc(state, instr->next_pc); \
     return; \
 }
 
@@ -197,102 +184,75 @@ SIGNATURE(name) \
     cpu_set_gpr(state, instr->rd, help_f_classify(state->fp_regs[instr->rs1].view, sizeof(type))); \
 }
 
-#ifndef INTERP
-    INSTRUCTION_LIST(GEN)
+#define SIGNATURE(name) name:
+#define GEN(name, tag, a1, a2, a3, a4) \
+    GEN_##tag(name, a1, a2, a3, a4) \
+    instr++; \
+    if (instr >= block_end) goto end_of_block; \
+    goto *dispatch_table_dbcache[instr->kind];
 
-    #define X(name, tag, a1, a2, a3, a4) [instr_##name] = interp__##name,
-    static InstrFunc dispatch_table[] = { INSTRUCTION_LIST(X) };
-    #undef X
-#endif
-typedef void (*InstrFunc)(CPUState *, Instr *);
-
-void interp_pure(Machine *machine)
+// NOTE:
+// Remember not to modify the fields of instr pointer, because it
+// stores the decode cache, which will resue by others in future.
+// So use another link_pc to link each "block".
+// Block in here has two means. If you find cache entry, then block
+// is a series of instructions, otherwises it is just a single
+// instruction. I call it block because this is interp with dbcache.
+// The unit for this function is block.
+void interp(Machine *machine)
 {
     CPUState *state = &machine->state;
-    Instr instr_struct;
-    Instr *instr = &instr_struct;
-    decode_instr(cpu_get_pc(state), instr);
+    DBCache *dbcache = machine->dbcache;
+    DBCacheEntry *entry = NULL;
+    Instr single_instr;
+    u64 link_pc;
+    Instr *instr = NULL;
+    Instr *block_end = NULL;
 
 #define X(name, tag, a1, a2, a3, a4) [instr_##name] = &&name,
-    static void *dispatch_table[] = { INSTRUCTION_LIST(X) };
+    static void *dispatch_table_dbcache[] = { INSTRUCTION_LIST(X) };
 #undef X
 
-    goto *dispatch_table[instr->kind];
+    while (true) {
+        u64 pc = cpu_get_pc(state);
+
+        // Lookup cache
+        if (dbcache->last && dbcache->last->pc == pc) {
+            entry = dbcache->last;
+        } else {
+            entry = dbcache_lookup(dbcache, pc);
+            if (!entry) {
+                if (!dbcache->full) {
+                    entry = dbcache_add(dbcache, pc);
+                } else {
+                    decode_instr(pc, &single_instr);
+                    // No cache, initialize the start/end pointer
+                    instr = &single_instr;
+                    block_end = instr + 1;
+                    // Initialize link pc
+                    link_pc = instr->next_pc;
+                    // Execute the single instruction
+                    goto *dispatch_table_dbcache[instr->kind];
+                }
+            }
+        }
+
+        // Find the cache, initialize the start/end pointer
+        instr = &entry->items[0];
+        block_end = instr + entry->count;
+        // Initialize link pc
+        link_pc = block_end[-1].next_pc;
+        // Execute the block instructions
+        goto *dispatch_table_dbcache[instr->kind];
+
+end_of_block:
+        // Commit the link_pc
+        cpu_set_pc(state, link_pc);
+        continue;
+    }
 
     INSTRUCTION_LIST(GEN)
 }
-
-void interp_dbache(Machine *machine)
-{
-}
-
-// void interp_tbcache(Machine *machine);
-
-#if 0
-
-void interp_debug(Machine *machine)
-{
-    CPUState *state = &machine->state;
-    cpu_reset_flow_ctl(state);
-    Instr instr = {0};
-    u64 pc = cpu_get_pc(state);
-    if (unlikely(!decode_instr(pc, &instr))) {
-        cpu_set_flow_ctl(state, FLOW_ILLEGAL_INSTR);
-        return;
-    }
-    cpu_increase_flow_pc(state, instr.rvc ? 2 : 4);
-    InstrFunc func = dispatch_table[instr.kind];
-    func(state, &instr);
-    if (IS_TRAP(cpu_get_flow_ctl(state))) machine_trap(machine);
-    cpu_commit_pc(state);
-}
-
-void interp_block(Machine *machine)
-{
-    CPUState *state = &machine->state;
-
-#ifdef ENABLE_DBCACHE
-    if (machine->dbcache->last_accessed &&
-        machine->dbcache->last_accessed->pc == cpu_get_pc(state)) {
-        da_foreach(Instr, instr, machine->dbcache->last_accessed) {
-            cpu_increase_flow_pc(state, instr->rvc ? 2 : 4);
-            InstrFunc func = dispatch_table[instr->kind];
-            func(state, instr);
-            if (instr->cfc) return;
-            cpu_commit_pc(state);
-        }
-        goto no_cache;
-    }
-#endif // ENABLE_DBCACHE
-
-    while (true) {
-#ifdef ENABLE_DBCACHE
-no_cache:
-        ;
-#endif // ENABLE_DBCACHE
-        Instr instr = {0};
-        u64 pc = cpu_get_pc(state);
-        if (unlikely(!decode_instr(pc, &instr))) {
-            cpu_set_flow_ctl(state, FLOW_ILLEGAL_INSTR);
-            break;
-        }
-
-        cpu_increase_flow_pc(state, instr.rvc ? 2 : 4);
-
-        InstrFunc func = dispatch_table[instr.kind];
-        func(state, &instr);
-
-        if (instr.cfc) return;
-        cpu_commit_pc(state);
-    }
-}
-
-#else
-
-void interp_debug(Machine *machine) {}
-void interp_block(Machine *machine) {}
-
-#endif
 
 #undef SIGNATURE
 #undef GEN

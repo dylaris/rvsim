@@ -2,14 +2,18 @@
 #include "codegen.h"
 #include "libtcc.h"
 
-#define FLOW_SET_EXPR(field, expr) \
-    sb_appendf(sb, "    cpu_set_flow_%s(state, %s);\n", #field, #expr)
-#define FLOW_SET2_EXPR(field, expr) \
-    sb_appendf(sb, "        cpu_set_flow_%s(state, %s);\n", #field, #expr)
-#define FLOW_SET_VAL(field, val) \
-    sb_appendf(sb, "    cpu_set_flow_%s(state, %luULL);\n", #field, (u64) val)
-#define FLOW_SET2_VAL(field, val) \
-    sb_appendf(sb, "        cpu_set_flow_%s(state, %lu);\n", #field, (u64) val)
+#define FLOW_SET_EXPR(expr) \
+    sb_appendf(sb, "    cpu_set_flow(state, %s);\n", #expr)
+#define FLOW_SET2_EXPR(expr) \
+    sb_appendf(sb, "        cpu_set_flow(state, %s);\n", #expr)
+#define PC_SET_VAL(val) \
+    sb_appendf(sb, "    cpu_set_pc(state, %luULL);\n", (u64) val)
+#define PC_SET2_VAL(val) \
+    sb_appendf(sb, "        cpu_set_pc(state, %lu);\n", (u64) val)
+#define PC_SET_EXPR(expr) \
+    sb_appendf(sb, "    cpu_set_pc(state, %s;\n", #expr)
+#define PC_SET2_EXPR(expr) \
+    sb_appendf(sb, "        cpu_set_pc(state, %s);\n", #expr)
 
 #define XREG_SET_VAL(reg, val) \
     sb_appendf(sb, "    cpu_set_gpr(state, %d, %luULL);\n", (reg), (u64) val)
@@ -96,9 +100,10 @@ SIGNATURE(name) \
     XREG_GET(instr->rs1, rs1); \
     XREG_GET(instr->rs2, rs2); \
     GuestVAddr target_addr = pc + (i64) instr->imm; \
+    FLOW_SET2_EXPR(FLOW_BRANCH_NOT_TAKEN); \
     sb_appendf(sb, "    if (%s) {\n", #expr); \
-    FLOW_SET2_EXPR(ctl, FLOW_BRANCH); \
-    FLOW_SET2_VAL(pc, target_addr); \
+        FLOW_SET2_EXPR(FLOW_BRANCH_TAKEN); \
+        PC_SET2_VAL(target_addr); \
     if (profile_block_should_link(pc, target_addr)) { \
         da_append(stack, target_addr); \
         sb_appendf(sb, "        goto instr_%lx;\n", target_addr); \
@@ -116,13 +121,13 @@ SIGNATURE(name) \
     XREG_GET(instr->rs1, rs1); \
     if (instr->kind == instr_jalr) { \
         sb_appendf(sb, "    GuestVAddr target_addr = " #saddr ";\n", (i64) instr->imm); \
-        FLOW_SET_EXPR(ctl, FLOW_JUMP); \
-        FLOW_SET_EXPR(pc, target_addr); \
+        FLOW_SET_EXPR(FLOW_INDIRECT_JUMP); \
+        PC_SET_EXPR(target_addr); \
         sb_appendf(sb, "    goto end;\n"); \
     } else { \
         GuestVAddr target_addr = pc + (i64) instr->imm; \
-        FLOW_SET_EXPR(ctl, FLOW_JUMP); \
-        FLOW_SET_VAL(pc, target_addr); \
+        FLOW_SET_EXPR(FLOW_DIRECT_JUMP); \
+        PC_SET_VAL(target_addr); \
         if (profile_block_should_link(pc, target_addr)) { \
             da_append(stack, target_addr); \
             sb_appendf(sb, "    goto instr_%lx;\n", target_addr); \
@@ -141,9 +146,10 @@ SIGNATURE(name) \
     XREG_GET(instr->rs1, rs1); \
     XREG_GET(instr->rs2, rs2); \
     GuestVAddr target_addr = pc + (i64) instr->imm; \
+    FLOW_SET2_EXPR(FLOW_BRANCH_NOT_TAKEN); \
     sb_appendf(sb, "    if (%s) {\n", #expr); \
-    FLOW_SET2_EXPR(ctl, FLOW_BRANCH); \
-    FLOW_SET2_VAL(pc, target_addr); \
+    FLOW_SET2_EXPR(FLOW_BRANCH_TAKEN); \
+    PC_SET2_VAL(target_addr); \
     sb_appendf(sb, "        goto end;\n"); \
     sb_appendf(sb, "    }\n"); \
 }
@@ -156,12 +162,12 @@ SIGNATURE(name) \
     XREG_GET(instr->rs1, rs1); \
     if (instr->kind == instr_jalr) { \
         sb_appendf(sb, "    GuestVAddr target_addr = " #saddr ";\n", (i64) instr->imm); \
-        FLOW_SET_EXPR(ctl, FLOW_JUMP); \
-        FLOW_SET_EXPR(pc, target_addr); \
+        FLOW_SET_EXPR(FLOW_INDIRECT_JUMP); \
+        PC_SET_EXPR(target_addr); \
     } else { \
         GuestVAddr target_addr = pc + (i64) instr->imm; \
-        FLOW_SET_EXPR(ctl, FLOW_JUMP); \
-        FLOW_SET_VAL(pc, target_addr); \
+        FLOW_SET_EXPR(FLOW_DIRECT_JUMP); \
+        PC_SET_VAL(target_addr); \
     } \
     sb_appendf(sb, "    goto end;\n"); \
     sb_appendf(sb, "}\n"); \
@@ -173,8 +179,8 @@ SIGNATURE(name) \
 SIGNATURE(name) \
 { \
     sb_appendf(sb, "    GuestVAddr target_addr = %lu;\n", pc + 4); \
-    FLOW_SET_EXPR(ctl, FLOW_ECALL); \
-    FLOW_SET_EXPR(pc, target_addr); \
+    FLOW_SET_EXPR(FLOW_ECALL); \
+    PC_SET_EXPR(target_addr); \
     sb_appendf(sb, "    goto end;\n"); \
     sb_appendf(sb, "    }\n"); \
 }
@@ -245,8 +251,8 @@ SIGNATURE(name) \
 #define GEN_SKIP(name, a1, a2, a3, a4) \
 SIGNATURE(name) \
 { \
-    FLOW_SET_EXPR(ctl, FLOW_SKIP_CODEGEN); \
-    FLOW_SET_VAL(pc, pc); \
+    FLOW_SET_EXPR(FLOW_SKIP_CODEGEN); \
+    PC_SET_VAL(pc); \
     sb_appendf(sb, "    goto end;\n"); \
     sb_appendf(sb, "}\n"); \
     instr->cfc = true; \
@@ -393,37 +399,28 @@ static TCCState *compile(const char *source)
     "    u32 w;                                     \n" \
     "    f32 s;                                     \n" \
     "} FPR;                                         \n" \
-    "#define TRAP_MASK (1 << 4)                     \n" \
+    "#define IS_TRAP(flow) ((flow)>FLOW_TRAP_BEGIN) \n" \
     "typedef enum {                                 \n" \
-    "    FLOW_NONE           = 0,                   \n" \
-    "    FLOW_BRANCH         = 1,                   \n" \
-    "    FLOW_JUMP           = 2,                   \n" \
-    "    FLOW_SKIP_CODEGEN   = 3,                   \n" \
-    "    FLOW_ECALL          = TRAP_MASK | 1,       \n" \
-    "    FLOW_ILLEGAL_INSTR  = TRAP_MASK | 2,       \n" \
-    "    FLOW_LOAD_MISALIGN  = TRAP_MASK | 3,       \n" \
-    "    FLOW_STORE_MISALIGN = TRAP_MASK | 4,       \n" \
-    "    FLOW_LOAD_FAULT     = TRAP_MASK | 5,       \n" \
-    "    FLOW_STORE_FAULT    = TRAP_MASK | 6,       \n" \
-    "    FLOW_CRASH          = TRAP_MASK | 7,       \n" \
-    "    FLOW_HALT           = TRAP_MASK | 8,       \n" \
-    "    FLOW_CACHE_OVERFLOW = TRAP_MASK | 9,       \n" \
-    "} FlowCtrl;                                    \n" \
-    "typedef struct {                               \n" \
-    "    u64 pc;                                    \n" \
-    "    FlowCtrl ctl;                              \n" \
+    "    FLOW_NONE = 0,                             \n" \
+    "    FLOW_BRANCH_TAKEN,                         \n" \
+    "    FLOW_BRANCH_NOT_TAKEN,                     \n" \
+    "    FLOW_DIRECT_JUMP,                          \n" \
+    "    FLOW_INDIRECT_JUMP,                        \n" \
+    "    FLOW_SKIP_CODEGEN,                         \n" \
+    "    FLOW_TRAP_BEGIN,                           \n" \
+    "    FLOW_ECALL                                 \n" \
     "} Flow;                                        \n" \
     "typedef struct {                               \n" \
-    "    GPR gp_regs[32];                           \n" \
     "    u64 pc;                                    \n" \
     "    Flow flow;                                 \n" \
+    "    GPR gp_regs[32];                           \n" \
     "    FPR fp_regs[32];                           \n" \
     "} CPUState;                                    \n" \
     "typedef u64 HostVAddr;                         \n" \
     "typedef u64 GuestVAddr;                        \n" \
     "#define GUEST_MEMORY_OFFSET 0x088800000000ULL  \n" \
-    "#define cpu_set_flow_pc(state_, pc_)           ((state_)->flow.pc = (pc_))\n"                                           \
-    "#define cpu_set_flow_ctl(state_, ctl_)         ((state_)->flow.ctl = (ctl_))\n"                                         \
+    "#define cpu_set_flow(state_, flow_)            ((state_)->flow = (flow_))\n"                                            \
+    "#define cpu_set_pc(state_, pc_)                ((state_)->pc = (pc_))\n"                                                \
     "#define cpu_set_gpr(state_, reg_, val_)        do { if ((reg_) != 0) (state_)->gp_regs[(reg_)] = (val_); } while (0)\n" \
     "#define cpu_get_gpr(state_, reg_)              (((reg_) == 0) ? 0 : (state_)->gp_regs[(reg_)])\n"                       \
     "#define cpu_set_fpr(state_, reg_, val_)        ((state_)->fp_regs[(reg_)] = (val_))\n"                                  \

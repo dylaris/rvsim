@@ -65,9 +65,10 @@ SIGNATURE(name) \
     instr->cfc = false; \
     if (expr) { \
         instr->cfc = true; \
-        cpu_set_flow_ctl(state, FLOW_BRANCH); \
-        cpu_set_flow_pc(state, addr); \
-        link_pc = addr; \
+        cpu_set_flow(state, FLOW_BRANCH_TAKEN); \
+        cpu_set_pc(state, addr); \
+    } else { \
+        cpu_set_flow(state, FLOW_BRANCH_NOT_TAKEN); \
     } \
 }
 
@@ -78,16 +79,15 @@ SIGNATURE(name) \
     i64 imm = (i64) instr->imm; \
     u64 pc = instr->curr_pc; \
     cpu_set_gpr(state, instr->rd, instr->next_pc); \
-    cpu_set_flow_ctl(state, FLOW_JUMP); \
-    cpu_set_flow_pc(state, addr); \
-    link_pc = addr; \
+    cpu_set_flow(state, instr->kind == instr_jal ? FLOW_DIRECT_JUMP : FLOW_INDIRECT_JUMP); \
+    cpu_set_pc(state, addr); \
 }
 
 #define GEN_ECALL(name, a1, a2, a3, a4) \
 SIGNATURE(name) \
 { \
-    cpu_set_flow_ctl(state, FLOW_ECALL); \
-    cpu_set_flow_pc(state, instr->next_pc); \
+    cpu_set_flow(state, FLOW_ECALL); \
+    cpu_set_pc(state, instr->next_pc); \
     return; \
 }
 
@@ -187,8 +187,8 @@ SIGNATURE(name) \
 #define SIGNATURE(name) name:
 #define GEN(name, tag, a1, a2, a3, a4) \
     GEN_##tag(name, a1, a2, a3, a4) \
-    decode_instr(link_pc, instr); \
-    link_pc = instr->next_pc; \
+    decode_instr(cpu_get_pc(state), instr); \
+    cpu_set_pc(state, instr->next_pc); \
     goto *dispatch_table_pure[instr->kind];
 
 // NOTE:
@@ -200,7 +200,6 @@ SIGNATURE(name) \
 void interp(Machine *machine)
 {
     CPUState *state = &machine->state;
-    u64 link_pc = cpu_get_pc(state);
     Instr instr_struct;
     Instr *instr = &instr_struct;
 
@@ -209,8 +208,8 @@ void interp(Machine *machine)
 #undef X
 
     // Goto the first instruction
-    decode_instr(link_pc, instr);
-    link_pc = instr->next_pc;
+    decode_instr(cpu_get_pc(state), instr);
+    cpu_set_pc(state, instr->next_pc);
     goto *dispatch_table_pure[instr->kind];
 
     INSTRUCTION_LIST(GEN)

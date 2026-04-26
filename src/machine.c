@@ -9,7 +9,6 @@ void machine_load_bin(Machine *machine, const char *prog, GuestVAddr base)
     mem_load_bin(machine->mem, f, base);
 
     cpu_set_pc(&machine->state, machine->mem->entry);
-    cpu_set_flow_pc(&machine->state, machine->mem->entry);
 
     fclose(f);
 }
@@ -22,7 +21,6 @@ void machine_load_elf(Machine *machine, const char *prog)
     mem_load_elf(machine->mem, f);
 
     cpu_set_pc(&machine->state, machine->mem->entry);
-    cpu_set_flow_pc(&machine->state, machine->mem->entry);
 
     fclose(f);
 }
@@ -67,16 +65,10 @@ void machine_init_stack_bin(Machine *machine, u64 stack_size)
 
 void machine_trap(Machine *machine)
 {
-    u64 pc = cpu_get_pc(&machine->state);
-
-    switch (machine->state.flow.ctl) {
+    switch (machine->state.flow) {
     case FLOW_ECALL:
         do_syscall(machine);
         return;
-
-    case FLOW_ILLEGAL_INSTR:
-        fatalf("illegal instruction '0x%08x' @ 0x%016lx", mem_read_u32(pc), pc);
-
     default:
         unreachable();
     }
@@ -132,8 +124,6 @@ void machine_step(Machine *machine)
 
 void machine_print(const Machine *machine)
 {
-    printf("flow.pc: 0x%lx\n", cpu_get_flow_pc(&machine->state));
-    printf("ctl:     %d\n", cpu_get_flow_ctl(&machine->state));
     printf("PC:      0x%lx\n", cpu_get_pc(&machine->state));
     printf("ZERO:    0x%lx\n", cpu_get_gpr(&machine->state, GPR_ZERO));
     printf("RA:      0x%lx\n", cpu_get_gpr(&machine->state, GPR_RA));

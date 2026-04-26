@@ -35,9 +35,8 @@ int main(int argc, char **argv)
     while (true) {
         // machine_step(&machine);
         interp(&machine);
-        if (IS_TRAP(cpu_get_flow_ctl(&machine.state)))
+        if (IS_TRAP(cpu_get_flow(&machine.state)))
             machine_trap(&machine);
-        cpu_commit_pc(&machine.state);
     }
 
 #endif

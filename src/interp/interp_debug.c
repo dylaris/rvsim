@@ -65,9 +65,10 @@ SIGNATURE(name) \
     instr->cfc = false; \
     if (expr) { \
         instr->cfc = true; \
-        cpu_set_flow_ctl(state, FLOW_BRANCH); \
-        cpu_set_flow_pc(state, addr); \
-        instr->next_pc = addr; \
+        cpu_set_flow(state, FLOW_BRANCH_TAKEN); \
+        cpu_set_pc(state, addr); \
+    } else { \
+        cpu_set_flow(state, FLOW_BRANCH_NOT_TAKEN); \
     } \
 }
 
@@ -78,18 +79,15 @@ SIGNATURE(name) \
     i64 imm = (i64) instr->imm; \
     u64 pc = instr->curr_pc; \
     cpu_set_gpr(state, instr->rd, instr->next_pc); \
-    cpu_set_flow_ctl(state, FLOW_JUMP); \
-    cpu_set_flow_pc(state, addr); \
-    instr->next_pc = addr; \
+    cpu_set_flow(state, instr->kind == instr_jal ? FLOW_DIRECT_JUMP : FLOW_INDIRECT_JUMP); \
+    cpu_set_pc(state, addr); \
 }
 
 #define GEN_ECALL(name, a1, a2, a3, a4) \
 SIGNATURE(name) \
 { \
-    GuestVAddr addr = instr->curr_pc + 4; \
-    cpu_set_flow_ctl(state, FLOW_ECALL); \
-    cpu_set_flow_pc(state, addr); \
-    return; \
+    cpu_set_flow(state, FLOW_ECALL); \
+    cpu_set_pc(state, instr->next_pc); \
 }
 
 #define GEN_CSR(name, a1, a2, a3, a4) \
@@ -198,15 +196,14 @@ static InstrFunc dispatch_table_debug[] = { INSTRUCTION_LIST(X) };
 void interp(Machine *machine)
 {
     CPUState *state = &machine->state;
-    cpu_reset_flow_ctl(state);
+    cpu_reset_flow(state);
     Instr instr = {0};
     u64 pc = cpu_get_pc(state);
     decode_instr(pc, &instr);
-    cpu_increase_flow_pc(state, instr.rvc ? 2 : 4);
+    cpu_set_pc(state, instr.next_pc);
     InstrFunc func = dispatch_table_debug[instr.kind];
     func(state, &instr);
-    if (IS_TRAP(cpu_get_flow_ctl(state))) machine_trap(machine);
-    cpu_commit_pc(state);
+    if (IS_TRAP(cpu_get_flow(state))) machine_trap(machine);
 }
 
 #undef SIGNATURE

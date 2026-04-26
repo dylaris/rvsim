@@ -65,16 +65,16 @@ SIGNATURE(name) \
     instr->cfc = false; \
     if (expr) { \
         instr->cfc = true; \
-        cpu_set_flow_ctl(state, FLOW_BRANCH); \
-        cpu_set_flow_pc(state, addr); \
-        link_pc = addr; \
+        cpu_set_flow(state, FLOW_BRANCH_TAKEN); \
+        cpu_set_pc(state, addr); \
         if (!entry->branch_taken) { \
-            entry->branch_taken = dbcache_get(dbcache, link_pc); \
+            entry->branch_taken = dbcache_get(dbcache, cpu_get_pc(state)); \
         } \
         entry = entry->branch_taken; \
     } else { \
+        cpu_set_flow(state, FLOW_BRANCH_NOT_TAKEN); \
         if (!entry->branch_not_taken) { \
-            entry->branch_not_taken = dbcache_get(dbcache, link_pc); \
+            entry->branch_not_taken = dbcache_get(dbcache, cpu_get_pc(state)); \
         } \
         entry = entry->branch_not_taken; \
     } \
@@ -88,25 +88,25 @@ SIGNATURE(name) \
     i64 imm = (i64) instr->imm; \
     u64 pc = instr->curr_pc; \
     cpu_set_gpr(state, instr->rd, instr->next_pc); \
-    cpu_set_flow_ctl(state, FLOW_JUMP); \
-    cpu_set_flow_pc(state, addr); \
-    link_pc = addr; \
+    cpu_set_pc(state, addr); \
     if (instr->kind == instr_jal) { \
+        cpu_set_flow(state, FLOW_DIRECT_JUMP); \
         if (!entry->jal_target) { \
-            entry->jal_target = dbcache_get(dbcache, link_pc); \
+            entry->jal_target = dbcache_get(dbcache, cpu_get_pc(state)); \
         } \
         entry = entry->jal_target; \
     } else { \
+        cpu_set_flow(state, FLOW_INDIRECT_JUMP); \
         DBCacheEntry *target_entry = NULL; \
         for (int i = 0; i < DYN_LINK_CACHE_SIZE; i++) { \
-            if (entry->dyn_link_cache[i].target_pc == link_pc) { \
+            if (entry->dyn_link_cache[i].target_pc == cpu_get_pc(state)) { \
                 target_entry = entry->dyn_link_cache[i].target_entry; \
                 break; \
             } \
         } \
         if (!target_entry) { \
-            entry->dyn_link_cache[entry->dyn_link_next].target_pc = link_pc; \
-            entry->dyn_link_cache[entry->dyn_link_next].target_entry = dbcache_get(dbcache, link_pc); \
+            entry->dyn_link_cache[entry->dyn_link_next].target_pc = cpu_get_pc(state); \
+            entry->dyn_link_cache[entry->dyn_link_next].target_entry = dbcache_get(dbcache, cpu_get_pc(state)); \
             target_entry = entry->dyn_link_cache[entry->dyn_link_next].target_entry; \
             entry->dyn_link_next = (entry->dyn_link_next + 1) % DYN_LINK_CACHE_SIZE; \
         } \
@@ -118,8 +118,8 @@ SIGNATURE(name) \
 #define GEN_ECALL(name, a1, a2, a3, a4) \
 SIGNATURE(name) \
 { \
-    cpu_set_flow_ctl(state, FLOW_ECALL); \
-    cpu_set_flow_pc(state, instr->next_pc); \
+    cpu_set_flow(state, FLOW_ECALL); \
+    cpu_set_pc(state, instr->next_pc); \
     return; \
 }
 
@@ -226,7 +226,6 @@ SIGNATURE(name) \
 // NOTE:
 // Remember not to modify the fields of instr pointer, because it
 // stores the decode cache, which will reuse by others in future.
-// So use another link_pc to link each "block".
 // And also, each block entry has its own link fields, which means
 // all blocks (exclude ecall) will link directly, and it will
 // exit when encounter ecall (return in ecall label)
@@ -237,7 +236,6 @@ void interp(Machine *machine)
     DBCache *dbcache = machine->dbcache;
     DBCacheEntry *entry = NULL;
     Instr single_instr;
-    u64 link_pc = cpu_get_pc(state);
     Instr *instr = NULL;
     Instr *block_end = NULL;
 
@@ -249,22 +247,20 @@ void interp(Machine *machine)
     do { \
         instr = &(e)->items[0]; \
         block_end = instr + (e)->count; \
-        link_pc = block_end[-1].next_pc; \
+        cpu_set_pc(state, block_end[-1].next_pc); \
         goto *dispatch_table_dbcache[instr->kind]; \
     } while (0)
 
     while (true) {
-        u64 pc = cpu_get_pc(state);
-
         // I don't know why it will faster a little bit
         // when adding the end_of_block label and this loop.
         // It should be execute in the "goto"s beacuse the
         // graph of blocks, and exit in ecall
-        entry = dbcache_get(dbcache, link_pc);
+        entry = dbcache_get(dbcache, cpu_get_pc(state));
         EXEC_BLOCK(entry);
 
 end_of_block:
-        cpu_set_pc(state, link_pc);
+        ;
     }
 
     INSTRUCTION_LIST(GEN)

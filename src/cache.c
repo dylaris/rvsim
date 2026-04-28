@@ -1,39 +1,46 @@
-#include "dbcache.h"
+#include "cache.h"
 #include "memory.h"
 #include "nob.h"
 
-DBCache *dbcache_create(void)
+Cache *cache_create(void)
 {
-    DBCache *cache = malloc(sizeof(DBCache));
+    Cache *cache = malloc(sizeof(Cache));
     assert(cache && "Out of memory");
-    memset(cache, 0, sizeof(DBCache));
+    memset(cache, 0, sizeof(Cache));
+    cache->cg = codegen_create();
     return cache;
 }
 
-void dbcache_destroy(DBCache *cache)
+void cache_destroy(Cache *cache)
 {
     if (!cache) return;
-    for (int i = 0; i < DBCACHE_SIZE; i++) {
-        DBCacheEntry *entry = &cache->table[i];
+    for (int i = 0; i < CACHE_SIZE; i++) {
+        CacheEntry *entry = &cache->table[i];
         if (entry->pc != 0) da_free(*entry);
     }
+    codegen_destroy(cache->cg);
     free(cache);
 }
 
-#define dbcache__hash(pc_) ((pc_) & (DBCACHE_SIZE - 1))
+#define cache__hash(pc_) ((pc_) & (CACHE_SIZE - 1))
 
-static void dbcache__update_access(DBCache *cache, DBCacheEntry *entry)
+void cache_touch(Cache *cache, CacheEntry *entry)
 {
     entry->last_access_timestamp = ++cache->timestamp_counter;
     entry->access_count++;
     cache->last = entry;
+
+    if (entry->access_count >= CACHE_HOT_COUNT && !entry->code) {
+        codegen_compile(cache->cg, entry);
+    }
 }
 
-static void dbcache__reset_entry(DBCacheEntry *entry)
+static void cache__reset_entry(Cache *cache, CacheEntry *entry)
 {
+    if (entry->code) codegen_free(cache->cg, entry->code, entry->code_length);
     Instr *saved_items = entry->items;
     size_t saved_capacity = entry->capacity;
-    memset(entry, 0, sizeof(DBCacheEntry));
+    memset(entry, 0, sizeof(CacheEntry));
     entry->items = saved_items;
     entry->capacity = saved_capacity;
 }
@@ -53,13 +60,13 @@ static inline bool is_block_end(InstrKind kind)
     }
 }
 
-static DBCacheEntry *dbcache__find_evict_entry(DBCache *cache)
+static CacheEntry *cache__find_evict_entry(Cache *cache)
 {
     size_t evict_index = 0;
     u64 min_timestamp = cache->table[evict_index].last_access_timestamp;
 
-    for (size_t i = 1; i < DBCACHE_SIZE; i++) {
-        DBCacheEntry *entry = &cache->table[i];
+    for (size_t i = 1; i < CACHE_SIZE; i++) {
+        CacheEntry *entry = &cache->table[i];
         // Prefer empty entry
         if (entry->pc == 0) {
             evict_index = i;
@@ -73,46 +80,46 @@ static DBCacheEntry *dbcache__find_evict_entry(DBCache *cache)
     return &cache->table[evict_index];
 }
 
-DBCacheEntry *dbcache_get(DBCache *cache, u64 pc)
+CacheEntry *cache_get(Cache *cache, u64 pc)
 {
     assert(pc != 0);
 
     if (cache->last && cache->last->pc == pc) {
-        dbcache__update_access(cache, cache->last);
+        cache_touch(cache, cache->last);
         return cache->last;
     }
 
-    size_t index = dbcache__hash(pc);
-    DBCacheEntry *entry = NULL;
+    size_t index = cache__hash(pc);
+    CacheEntry *entry = NULL;
 
     // Find empty entry or exist entry
-    for (int step = 0; step < DBCACHE_MAX_PROBE_STEPS; step++) {
+    for (int step = 0; step < CACHE_MAX_PROBE_STEPS; step++) {
         entry = &cache->table[index];
 
         if (entry->pc == 0) goto fill_entry;
 
         if (entry->pc == pc) {
-            dbcache__update_access(cache, entry);
+            cache_touch(cache, entry);
             return entry;
         }
 
-        index = (index + 1) & (DBCACHE_SIZE - 1);
+        index = (index + 1) & (CACHE_SIZE - 1);
     }
 
     // Cache is full, evict the oldest entry
-    entry = dbcache__find_evict_entry(cache);
-    dbcache__reset_entry(entry);
+    entry = cache__find_evict_entry(cache);
+    cache__reset_entry(cache, entry);
 
 fill_entry:
     // Empty entry or evict entry (need to reset)
     entry->pc = pc;
-    dbcache__update_access(cache, entry);
+    cache_touch(cache, entry);
     u64 curr_pc = pc;
     while (true) {
         Instr instr = {0};
         decode_instr(curr_pc, &instr);
         da_append(entry, instr);
-        if (is_block_end(instr.kind)) break;
+        if (instr.cfc) break;
         curr_pc += instr.rvc ? 2 : 4;
     }
 

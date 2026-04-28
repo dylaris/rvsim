@@ -1,5 +1,8 @@
 #include "interp.h"
+#include "interp_util.h"
 #include "decode.h"
+
+#include <math.h>
 
 #define GEN_EMPTY(name, a1, a2, a3, a4) \
 SIGNATURE(name) { }
@@ -62,13 +65,14 @@ SIGNATURE(name) \
     u64 rs1 = cpu_get_gpr(state, instr->rs1); \
     u64 rs2 = cpu_get_gpr(state, instr->rs2); \
     GuestVAddr addr = instr->curr_pc + (i64) instr->imm; \
-    instr->cfc = false; \
     if (expr) { \
-        instr->cfc = true; \
-        cpu_set_flow_ctl(state, FLOW_BRANCH); \
-        cpu_set_flow_pc(state, addr); \
-        link_pc = addr; \
+        cpu_set_flow(state, FLOW_BRANCH_TAKEN); \
+        cpu_set_pc(state, addr); \
+    } else { \
+        cpu_set_flow(state, FLOW_BRANCH_NOT_TAKEN); \
     } \
+    LINK_BLOCK(entry); \
+    EXEC_BLOCK(entry); \
 }
 
 #define GEN_JUMP(name, addr, a2, a3, a4) \
@@ -78,17 +82,23 @@ SIGNATURE(name) \
     i64 imm = (i64) instr->imm; \
     u64 pc = instr->curr_pc; \
     cpu_set_gpr(state, instr->rd, instr->next_pc); \
-    cpu_set_flow_ctl(state, FLOW_JUMP); \
-    cpu_set_flow_pc(state, addr); \
-    link_pc = addr; \
+    cpu_set_pc(state, addr); \
+    if (instr->kind == instr_jal) { \
+        cpu_set_flow(state, FLOW_DIRECT_JUMP); \
+    } else { \
+        cpu_set_flow(state, FLOW_INDIRECT_JUMP); \
+    } \
+    LINK_BLOCK(entry); \
+    EXEC_BLOCK(entry); \
 }
 
 #define GEN_ECALL(name, a1, a2, a3, a4) \
 SIGNATURE(name) \
 { \
-    cpu_set_flow_ctl(state, FLOW_ECALL); \
-    cpu_set_flow_pc(state, instr->next_pc); \
-    return; \
+    cpu_set_flow(state, FLOW_ECALL); \
+    cpu_set_pc(state, instr->next_pc); \
+    LINK_BLOCK(entry); \
+    EXEC_BLOCK(entry); \
 }
 
 #define GEN_CSR(name, a1, a2, a3, a4) \
@@ -191,21 +201,85 @@ SIGNATURE(name) \
     if (instr >= block_end) goto end_of_block; \
     goto *dispatch_table_dbcache[instr->kind];
 
+#define LINK_BLOCK(e) \
+    do { \
+        switch (cpu_get_flow(state)) { \
+        case FLOW_NONE: \
+            unreachable(); \
+        case FLOW_BRANCH_TAKEN: \
+            if (!(e)->branch_taken) { \
+                (e)->branch_taken = cache_get(cache, cpu_get_pc(state)); \
+            } else { \
+                cache_touch(cache, (e)->branch_taken); \
+            } \
+            (e) = (e)->branch_taken; \
+            break; \
+        case FLOW_BRANCH_NOT_TAKEN: \
+            if (!(e)->branch_not_taken) { \
+                (e)->branch_not_taken = cache_get(cache, cpu_get_pc(state)); \
+            } else { \
+                cache_touch(cache, (e)->branch_not_taken); \
+            } \
+            (e) = (e)->branch_not_taken; \
+            break; \
+        case FLOW_DIRECT_JUMP: \
+            if (!(e)->jal_target) { \
+                (e)->jal_target = cache_get(cache, cpu_get_pc(state)); \
+            } else { \
+                cache_touch(cache, (e)->jal_target); \
+            } \
+            (e) = (e)->jal_target; \
+            break; \
+        case FLOW_INDIRECT_JUMP: { \
+            CacheEntry *target_entry = NULL; \
+            for (int i = 0; i < DYN_LINK_CACHE_SIZE; i++) { \
+                if ((e)->dyn_link_cache[i].target_pc == cpu_get_pc(state)) { \
+                    target_entry = (e)->dyn_link_cache[i].target_entry; \
+                    break; \
+                } \
+            } \
+            if (!target_entry) { \
+                (e)->dyn_link_cache[(e)->dyn_link_next].target_pc = cpu_get_pc(state); \
+                (e)->dyn_link_cache[(e)->dyn_link_next].target_entry = cache_get(cache, cpu_get_pc(state)); \
+                target_entry = (e)->dyn_link_cache[(e)->dyn_link_next].target_entry; \
+                (e)->dyn_link_next = ((e)->dyn_link_next + 1) % DYN_LINK_CACHE_SIZE; \
+            } else { \
+                cache_touch(cache, target_entry); \
+            } \
+            (e) = target_entry; \
+            break; \
+        } \
+        case FLOW_ECALL: \
+            return; \
+        } \
+    } while (0)
+
+#define EXEC_BLOCK(e) \
+    do { \
+        if ((e)->code) { \
+            ((void (*)(CPUState*))(e)->code)(state); \
+            LINK_BLOCK(e); \
+            continue; \
+        } \
+        instr = &(e)->items[0]; \
+        block_end = instr + (e)->count; \
+        cpu_set_pc(state, block_end[-1].next_pc); \
+        goto *dispatch_table_dbcache[instr->kind]; \
+    } while (0)
+
 // NOTE:
 // Remember not to modify the fields of instr pointer, because it
-// stores the decode cache, which will resue by others in future.
-// So use another link_pc to link each "block".
-// Block in here has two means. If you find cache entry, then block
-// is a series of instructions, otherwises it is just a single
-// instruction. I call it block because this is interp with dbcache.
-// The unit for this function is block.
+// stores the decode cache, which will reuse by others in future.
+// And also, each block entry has its own link fields, which means
+// all blocks (exclude ecall) will link directly, and it will
+// exit when encounter ecall (return in ecall label)
+// By the way, the link behavior is in the end of GEN_BRANCH/GEN_JUMP
 void interp(Machine *machine)
 {
     CPUState *state = &machine->state;
-    DBCache *dbcache = machine->dbcache;
-    DBCacheEntry *entry = NULL;
+    Cache *cache = machine->cache;
+    CacheEntry *entry = NULL;
     Instr single_instr;
-    u64 link_pc;
     Instr *instr = NULL;
     Instr *block_end = NULL;
 
@@ -214,41 +288,15 @@ void interp(Machine *machine)
 #undef X
 
     while (true) {
-        u64 pc = cpu_get_pc(state);
-
-        // Lookup cache
-        if (dbcache->last && dbcache->last->pc == pc) {
-            entry = dbcache->last;
-        } else {
-            entry = dbcache_lookup(dbcache, pc);
-            if (!entry) {
-                if (!dbcache->full) {
-                    entry = dbcache_add(dbcache, pc);
-                } else {
-                    decode_instr(pc, &single_instr);
-                    // No cache, initialize the start/end pointer
-                    instr = &single_instr;
-                    block_end = instr + 1;
-                    // Initialize link pc
-                    link_pc = instr->next_pc;
-                    // Execute the single instruction
-                    goto *dispatch_table_dbcache[instr->kind];
-                }
-            }
-        }
-
-        // Find the cache, initialize the start/end pointer
-        instr = &entry->items[0];
-        block_end = instr + entry->count;
-        // Initialize link pc
-        link_pc = block_end[-1].next_pc;
-        // Execute the block instructions
-        goto *dispatch_table_dbcache[instr->kind];
+        // I don't know why it will faster a little bit
+        // when adding the end_of_block label and this loop.
+        // It should be execute in the "goto"s beacuse the
+        // graph of blocks, and exit in ecall
+        entry = cache_get(cache, cpu_get_pc(state));
+        EXEC_BLOCK(entry);
 
 end_of_block:
-        // Commit the link_pc
-        cpu_set_pc(state, link_pc);
-        continue;
+        ;
     }
 
     INSTRUCTION_LIST(GEN)

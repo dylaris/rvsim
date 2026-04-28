@@ -1,6 +1,5 @@
 #include "template.h"
 #include "codegen.h"
-#include "libtcc.h"
 
 #define FLOW_SET_EXPR(expr) \
     sb_appendf(sb, "    cpu_set_flow(state, %s);\n", #expr)
@@ -11,7 +10,7 @@
 #define PC_SET2_VAL(val) \
     sb_appendf(sb, "        cpu_set_pc(state, %lu);\n", (u64) val)
 #define PC_SET_EXPR(expr) \
-    sb_appendf(sb, "    cpu_set_pc(state, %s;\n", #expr)
+    sb_appendf(sb, "    cpu_set_pc(state, %s);\n", #expr)
 #define PC_SET2_EXPR(expr) \
     sb_appendf(sb, "        cpu_set_pc(state, %s);\n", #expr)
 
@@ -32,18 +31,8 @@
 #define MEM_WRITE(addr, type, data) \
     sb_appendf(sb, "    mem_write_%s(%s, (%s) %s);\n", #type, #addr, #type, #data)
 
-#define SIGNATURE(name) static void codegen_func_##name(String_Builder *sb, Instr *instr, Stack *stack, u64 pc)
-
-#define GEN(name, tag, a1, a2, a3, a4) GEN_##tag(name, a1, a2, a3, a4)
-
 #define GEN_EMPTY(name, a1, a2, a3, a4) \
-SIGNATURE(name) \
-{ \
-    (void) sb; \
-    (void) instr; \
-    (void) stack; \
-    (void) pc; \
-}
+SIGNATURE(name) { }
 
 #define GEN_LOAD(name, type, a2, a3, a4) \
 SIGNATURE(name) \
@@ -65,7 +54,7 @@ SIGNATURE(name) \
 #define GEN_AUIPC(name, a1, a2, a3, a4) \
 SIGNATURE(name) \
 { \
-    XREG_SET_VAL(instr->rd, pc + (i64) instr->imm); \
+    XREG_SET_VAL(instr->rd, instr->curr_pc + (i64) instr->imm); \
 }
 
 #define GEN_STORE(name, type, a2, a3, a4) \
@@ -91,73 +80,23 @@ SIGNATURE(name) \
     XREG_SET_VAL(instr->rd, (i64) instr->imm); \
 }
 
-// Block links in branch and jump
-#if 1
-
 #define GEN_BRANCH(name, expr, a2, a3, a4) \
 SIGNATURE(name) \
 { \
     XREG_GET(instr->rs1, rs1); \
     XREG_GET(instr->rs2, rs2); \
-    GuestVAddr target_addr = pc + (i64) instr->imm; \
-    FLOW_SET2_EXPR(FLOW_BRANCH_NOT_TAKEN); \
-    sb_appendf(sb, "    if (%s) {\n", #expr); \
-        FLOW_SET2_EXPR(FLOW_BRANCH_TAKEN); \
-        PC_SET2_VAL(target_addr); \
-    if (profile_block_should_link(pc, target_addr)) { \
-        da_append(stack, target_addr); \
-        sb_appendf(sb, "        goto instr_%lx;\n", target_addr); \
-    } else { \
-        sb_appendf(sb, "        goto end;\n"); \
-    } \
-    sb_appendf(sb, "    }\n"); \
-}
-
-#define GEN_JUMP(name, a1, saddr, a3, a4) \
-SIGNATURE(name) \
-{ \
-    GuestVAddr return_addr = pc + (instr->rvc ? 2 : 4); \
-    XREG_SET_VAL(instr->rd, return_addr); \
-    XREG_GET(instr->rs1, rs1); \
-    if (instr->kind == instr_jalr) { \
-        sb_appendf(sb, "    GuestVAddr target_addr = " #saddr ";\n", (i64) instr->imm); \
-        FLOW_SET_EXPR(FLOW_INDIRECT_JUMP); \
-        PC_SET_EXPR(target_addr); \
-        sb_appendf(sb, "    goto end;\n"); \
-    } else { \
-        GuestVAddr target_addr = pc + (i64) instr->imm; \
-        FLOW_SET_EXPR(FLOW_DIRECT_JUMP); \
-        PC_SET_VAL(target_addr); \
-        if (profile_block_should_link(pc, target_addr)) { \
-            da_append(stack, target_addr); \
-            sb_appendf(sb, "    goto instr_%lx;\n", target_addr); \
-        } else { \
-            sb_appendf(sb, "    goto end;\n"); \
-        } \
-    } \
-    sb_appendf(sb, "}\n"); \
-}
-
-#else
-
-#define GEN_BRANCH(name, expr, a2, a3, a4) \
-SIGNATURE(name) \
-{ \
-    XREG_GET(instr->rs1, rs1); \
-    XREG_GET(instr->rs2, rs2); \
-    GuestVAddr target_addr = pc + (i64) instr->imm; \
-    FLOW_SET2_EXPR(FLOW_BRANCH_NOT_TAKEN); \
+    GuestVAddr target_addr = instr->curr_pc + (i64) instr->imm; \
+    FLOW_SET_EXPR(FLOW_BRANCH_NOT_TAKEN); \
     sb_appendf(sb, "    if (%s) {\n", #expr); \
     FLOW_SET2_EXPR(FLOW_BRANCH_TAKEN); \
     PC_SET2_VAL(target_addr); \
-    sb_appendf(sb, "        goto end;\n"); \
     sb_appendf(sb, "    }\n"); \
 }
 
 #define GEN_JUMP(name, a1, saddr, a3, a4) \
 SIGNATURE(name) \
 { \
-    GuestVAddr return_addr = pc + (instr->rvc ? 2 : 4); \
+    GuestVAddr return_addr = instr->curr_pc + (instr->rvc ? 2 : 4); \
     XREG_SET_VAL(instr->rd, return_addr); \
     XREG_GET(instr->rs1, rs1); \
     if (instr->kind == instr_jalr) { \
@@ -165,24 +104,18 @@ SIGNATURE(name) \
         FLOW_SET_EXPR(FLOW_INDIRECT_JUMP); \
         PC_SET_EXPR(target_addr); \
     } else { \
-        GuestVAddr target_addr = pc + (i64) instr->imm; \
+        GuestVAddr target_addr = instr->curr_pc + (i64) instr->imm; \
         FLOW_SET_EXPR(FLOW_DIRECT_JUMP); \
         PC_SET_VAL(target_addr); \
     } \
-    sb_appendf(sb, "    goto end;\n"); \
-    sb_appendf(sb, "}\n"); \
 }
-
-#endif
 
 #define GEN_ECALL(name, a1, a2, a3, a4) \
 SIGNATURE(name) \
 { \
-    sb_appendf(sb, "    GuestVAddr target_addr = %lu;\n", pc + 4); \
+    sb_appendf(sb, "    GuestVAddr target_addr = %lu;\n", instr->curr_pc + 4); \
     FLOW_SET_EXPR(FLOW_ECALL); \
     PC_SET_EXPR(target_addr); \
-    sb_appendf(sb, "    goto end;\n"); \
-    sb_appendf(sb, "    }\n"); \
 }
 
 #define GEN_CSR(name, a1, a2, a3, a4) \
@@ -245,28 +178,6 @@ SIGNATURE(name) \
     XREG_SET_EXPR(instr->rd, expr); \
 }
 
-// Skip code generation for complicated instruction
-#if 1
-
-#define GEN_SKIP(name, a1, a2, a3, a4) \
-SIGNATURE(name) \
-{ \
-    FLOW_SET_EXPR(FLOW_SKIP_CODEGEN); \
-    PC_SET_VAL(pc); \
-    sb_appendf(sb, "    goto end;\n"); \
-    sb_appendf(sb, "}\n"); \
-    instr->cfc = true; \
-}
-
-#define GEN_OP_HMUL GEN_SKIP
-#define GEN_FP_SGNJ GEN_SKIP
-#define GEN_FP_XFER_F2I GEN_SKIP
-#define GEN_FP_XFER_I2F GEN_SKIP
-#define GEN_FP_XFER_F2F GEN_SKIP
-#define GEN_FP_CLASS GEN_SKIP
-
-#else
-
 #define GEN_OP_HMUL(name, expr, a2, a3, a4) \
 SIGNATURE(name) \
 { \
@@ -313,7 +224,8 @@ SIGNATURE(name) \
     XREG_SET_EXPR(instr->rd, (help_f_classify(val, sizeof(val)))); \
 }
 
-#endif
+#define SIGNATURE(name) static void codegen_func_##name(String_Builder *sb, const Instr *instr)
+#define GEN(name, tag, a1, a2, a3, a4) GEN_##tag(name, a1, a2, a3, a4)
 
 INSTRUCTION_LIST(GEN)
 
@@ -343,31 +255,9 @@ INSTRUCTION_LIST(GEN)
 #undef GEN_FP_CLASS
 
 #define X(name, tag, a1, a2, a3, a4) [instr_##name] = codegen_func_##name,
-typedef void (*CodeGenFunc)(String_Builder *, Instr *, Stack *, u64);
+typedef void (*CodeGenFunc)(String_Builder *, const Instr *);
 static CodeGenFunc codegen_table[] = { INSTRUCTION_LIST(X) };
 #undef X
-
-static TCCState *compile(const char *source)
-{
-    TCCState *s = tcc_new();
-    if (!s) fatal("cannot create tcc state");
-
-    tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
-
-    tcc_add_include_path(s, "inc/");
-
-    if (tcc_compile_string(s, source) == -1) {
-        tcc_delete(s);
-        fatal("tcc compilation failed");
-    }
-
-    if (tcc_relocate(s) < 0) {
-        tcc_delete(s);
-        fatal("tcc relocate failed");
-    }
-
-    return s;
-}
 
 #if 0
 
@@ -458,69 +348,144 @@ static TCCState *compile(const char *source)
     "}                \n" \
     "void end(void) {}\n"
 
-void *gencode(CodeGenerator *cg, TBCache *cache, u64 start_pc)
-{
-    Stack *links = &cg->links;
-    Set *set = &cg->set;
-    String_Builder *sb = &cg->sb;
-
-    sb_appendf(sb, CODEGEN_PROLOGUE);
-
-    da_append(links, start_pc);
-
-    while (cg->links.count) {
-        u64 pc = da_pop(links);
-        bool *exist = ht_find(set, pc);
-        if (exist) continue;
-        else *ht_put(set, pc) = true;
-
-        sb_appendf(sb, "instr_%lx: {\n", pc);
-
-        Instr instr = {0};
-        decode_instr(pc, &instr);
-
-        codegen_table[instr.kind](sb, &instr, links, pc);
-
-        if (instr.cfc) continue;
-        pc += (instr.rvc ? 2 : 4);
-
-        da_append(links, pc);
-
-        sb_appendf(sb, "    goto instr_%lx;\n}\n", pc);
-    }
-
-    sb_appendf(sb, CODEGEN_EPILOGUE);
-
-    TCCState *s = compile(sb->items);
-    void *start = tcc_get_symbol(s, "start");
-    void *end = tcc_get_symbol(s, "end");
-    if (!start || !end) {
-        tcc_delete(s);
-        fatal("symbol 'start' or 'end' not found in source");
-    }
-
-    size_t length = (char *) end - (char *) start;
-    void *code = tbcache_add(cache, start, length);
-
-    ht_reset(set);
-    sb->count = 0;
-    links->count = 0;
-    tcc_delete(s);
-
-    return code;
-}
-
 CodeGenerator *codegen_create(void)
 {
     CodeGenerator *cg = malloc(sizeof(CodeGenerator));
     assert(cg && "run out of memory");
     memset(cg, 0, sizeof(CodeGenerator));
+    cg->code_buffer = mmap(NULL, CODE_BUFFER_CAPACITY,
+         PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+    cg->free_units = BITMAP_SIZE;
     return cg;
 }
 
 void codegen_destroy(CodeGenerator *cg)
 {
     sb_free(cg->sb);
-    da_free(cg->links);
-    ht_free(&cg->set);
+    if (cg->s) tcc_delete(cg->s);
+    munmap(cg->code_buffer, CODE_BUFFER_CAPACITY);
+}
+
+void codegen_compile(CodeGenerator *cg, CacheEntry *entry)
+{
+    String_Builder *sb = &cg->sb;
+    sb->count = 0;
+    if (cg->s) {
+        tcc_delete(cg->s);
+        cg->s = NULL;
+    }
+
+    // Generate C code
+    sb_appendf(sb, CODEGEN_PROLOGUE);
+    da_foreach(Instr, instr, entry) {
+        sb_appendf(sb, "instr_%lx: {\n", instr->curr_pc);
+        codegen_table[instr->kind](sb, instr);
+        if (instr->cfc) {
+            sb_appendf(sb, "    goto end;\n}\n");
+        } else {
+            sb_appendf(sb, "    goto instr_%lx;\n}\n", instr->next_pc);
+        }
+    }
+    sb_appendf(sb, CODEGEN_EPILOGUE);
+
+    // printf("%.*s", (int) sb->count, sb->items);
+
+    // Generate machine code
+    cg->s = tcc_new();
+    if (!cg->s) fatal("cannot create tcc state");
+    tcc_set_output_type(cg->s, TCC_OUTPUT_MEMORY);
+    tcc_add_include_path(cg->s, "inc/");
+    if (tcc_compile_string(cg->s, sb->items) == -1) {
+        tcc_delete(cg->s);
+        fatal("tcc compilation failed");
+    }
+    if (tcc_relocate(cg->s) < 0) {
+        tcc_delete(cg->s);
+        fatal("tcc relocate failed");
+    }
+
+    void *start = tcc_get_symbol(cg->s, "start");
+    void *end = tcc_get_symbol(cg->s, "end");
+    if (!start || !end) {
+        tcc_delete(cg->s);
+        fatal("symbol 'start' or 'end' not found in source");
+    }
+    size_t length = (char *) end - (char *) start;
+
+    u8 *code = codegen_alloc(cg, length);
+    if (!code) return;
+    memcpy(code, start, length);
+
+    entry->code = code;
+    entry->code_length = length;
+}
+
+static __ForceInline u64 bytes_to_units(size_t bytes)
+{
+    if (bytes == 0) return 0;
+    return (bytes + CODE_UNIT_SIZE - 1) / CODE_UNIT_SIZE;
+}
+
+static __ForceInline u64 ptr_to_unit(CodeGenerator *cg, const u8 *ptr)
+{
+    return (ptr - cg->code_buffer) / CODE_UNIT_SIZE;
+}
+
+u8 *codegen_alloc(CodeGenerator *cg, size_t length)
+{
+    u64 units_needed = bytes_to_units(length);
+    if (units_needed > cg->free_units) return NULL;
+
+    // Use next-fit algorithm
+    u64 curr = cg->next;
+    u64 free_count = 0;
+    u64 alloc_start = 0;
+    bool found = false;
+
+    // Found a **continous** free chunk
+    for (u64 i = 0; i < BITMAP_SIZE; i++) {
+        u64 byte_idx = curr / 8;
+        u64 bit_idx  = curr % 8;
+
+        if (!(cg->bitmap[byte_idx] & (1 << bit_idx))) {
+            free_count++;
+            if (free_count == units_needed) {
+                alloc_start = curr - units_needed + 1;
+                found = true;
+                break;
+            }
+        } else {
+            free_count = 0;
+        }
+
+        curr = (curr + 1) % BITMAP_SIZE;
+    }
+
+    if (!found) return NULL;
+
+    // Update state
+    for (u64 i = 0; i < units_needed; i++) {
+        u64 bit = alloc_start + i;
+        cg->bitmap[bit / 8] |= (1 << (bit % 8));
+    }
+    cg->free_units -= units_needed;
+    cg->next = (alloc_start + units_needed) % BITMAP_SIZE;
+
+    return cg->code_buffer + alloc_start * CODE_UNIT_SIZE;
+}
+
+void codegen_free(CodeGenerator *cg, const u8 *code, size_t length)
+{
+    u64 start_unit = ptr_to_unit(cg, code);
+    if (start_unit >= BITMAP_SIZE) return;
+
+    u64 units_to_free = bytes_to_units(length);
+    if (units_to_free == 0) return;
+
+    for (u64 i = 0; i < units_to_free; i++) {
+        u64 bit = start_unit + i;
+        cg->bitmap[bit / 8] &= ~(1 << (bit % 8));
+    }
+
+    cg->free_units += units_to_free;
 }

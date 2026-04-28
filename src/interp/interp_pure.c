@@ -1,5 +1,8 @@
 #include "interp.h"
+#include "interp_util.h"
 #include "decode.h"
+
+#include <math.h>
 
 #define GEN_EMPTY(name, a1, a2, a3, a4) \
 SIGNATURE(name) { }
@@ -62,9 +65,7 @@ SIGNATURE(name) \
     u64 rs1 = cpu_get_gpr(state, instr->rs1); \
     u64 rs2 = cpu_get_gpr(state, instr->rs2); \
     GuestVAddr addr = instr->curr_pc + (i64) instr->imm; \
-    instr->cfc = false; \
     if (expr) { \
-        instr->cfc = true; \
         cpu_set_flow(state, FLOW_BRANCH_TAKEN); \
         cpu_set_pc(state, addr); \
     } else { \

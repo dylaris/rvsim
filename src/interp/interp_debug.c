@@ -1,5 +1,8 @@
 #include "interp.h"
+#include "interp_util.h"
 #include "decode.h"
+
+#include <math.h>
 
 #define GEN_EMPTY(name, a1, a2, a3, a4) \
 SIGNATURE(name) { }

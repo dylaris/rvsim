@@ -167,21 +167,16 @@ Machine machine_create(void)
         .state       = (CPUState) {0},
         .mem         = mem_create(),
         .engine      = NULL,
-        .tbcache     = tbcache_create(16),
-        .dbcache     = dbcache_create(),
-        .codegen     = codegen_create(),
+        .cache     = cache_create(),
         .breakpoints = {0},
     };
 }
 
 void machine_destroy(Machine *machine)
 {
-    profile_free();
     mem_destroy(machine->mem);
     da_free(machine->breakpoints);
-    codegen_destroy(machine->codegen);
-    tbcache_destroy(machine->tbcache);
-    dbcache_destroy(machine->dbcache);
+    cache_destroy(machine->cache);
 }
 
 void machine_add_breakpoint(Machine *machine, GuestVAddr breakpoint)

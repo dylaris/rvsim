@@ -564,7 +564,7 @@ void decode_instr(u64 pc, Instr *out)
             *out = instr_cbtype_read(raw);
             out->rs2 = GPR_ZERO;
             out->kind = copcode == 0x6 ? instr_beq : instr_bne;
-            // out->cfc = true;
+            out->cfc = true;
             goto ok;
         default:
             fatal("unrecognized copcode");
@@ -1321,27 +1321,27 @@ void decode_instr(u64 pc, Instr *out)
             switch (funct3) {
             case 0x0: /* BEQ */
                 out->kind = instr_beq;
-                // out->cfc = true;
+                out->cfc = true;
                 goto ok;
             case 0x1: /* BNE */
                 out->kind = instr_bne;
-                // out->cfc = true;
+                out->cfc = true;
                 goto ok;
             case 0x4: /* BLT */
                 out->kind = instr_blt;
-                // out->cfc = true;
+                out->cfc = true;
                 goto ok;
             case 0x5: /* BGE */
                 out->kind = instr_bge;
-                // out->cfc = true;
+                out->cfc = true;
                 goto ok;
             case 0x6: /* BLTU */
                 out->kind = instr_bltu;
-                // out->cfc = true;
+                out->cfc = true;
                 goto ok;
             case 0x7: /* BGEU */
                 out->kind = instr_bgeu;
-                // out->cfc = true;
+                out->cfc = true;
                 goto ok;
             default: unreachable();
             }

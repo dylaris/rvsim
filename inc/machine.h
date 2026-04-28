@@ -3,9 +3,8 @@
 
 #include "cpu.h"
 #include "memory.h"
-#include "tbcache.h"
-#include "dbcache.h"
-#include "codegen.h"
+#include "cache.h"
+#include "cache.h"
 
 typedef struct Machine Machine;
 typedef void (*BlockExec)(Machine *);
@@ -16,9 +15,7 @@ struct Machine {
     CPUState state;
     Memory *mem;
     BlockExec engine;
-    TBCache *tbcache;
-    DBCache *dbcache;
-    CodeGenerator *codegen;
+    Cache *cache;
     Stack breakpoints;
 };
 

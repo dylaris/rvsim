@@ -1,17 +1,13 @@
 #ifndef FLOW_H
 #define FLOW_H
 
-#define IS_TRAP(flow) ((flow) > FLOW_TRAP_BEGIN)
+#define IS_TRAP(flow) ((flow) >= FLOW_ECALL)
 typedef enum {
     FLOW_NONE = 0,
     FLOW_BRANCH_TAKEN,
     FLOW_BRANCH_NOT_TAKEN,
     FLOW_DIRECT_JUMP,
     FLOW_INDIRECT_JUMP,
-    FLOW_SKIP_CODEGEN,
-
-    FLOW_TRAP_BEGIN,
-
     FLOW_ECALL
 } Flow;
 

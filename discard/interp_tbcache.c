@@ -256,11 +256,12 @@ SIGNATURE(name) \
 
 #define EXEC_BLOCK(e) \
     do { \
-        if ((e)->code) { \
+        while ((e)->code) { \
             ((void (*)(CPUState*))(e)->code)(state); \
+            cache_print(e); \
             LINK_BLOCK(e); \
-            continue; \
         } \
+        cache_print(e); \
         instr = &(e)->items[0]; \
         block_end = instr + (e)->count; \
         cpu_set_pc(state, block_end[-1].next_pc); \

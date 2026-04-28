@@ -34,7 +34,7 @@ static inline i64 help_mulhsu(i64 a, i64 b)
     return negate ? ~res + (a * b == 0) : res;
 }
 
-#if 1
+#if 0
 
 #define help_div(a, b) (((b) == 0) ? (i64)-1  : (((i64)(a) == INT64_MIN && (i64)(b) == (i64)-1) ? INT64_MIN : (i64)(a) / (i64)(b)))
 #define help_rem(a, b) (((b) == 0) ? (i64)(a) : (((i64)(a) == INT64_MIN && (i64)(b) == (i64)-1) ? (i64)0    : (i64)(a) % (i64)(b)))

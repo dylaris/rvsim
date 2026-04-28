@@ -2,12 +2,15 @@
 #include "memory.h"
 #include "nob.h"
 
+#define sys_icache_invalidate(addr, size) \
+    __builtin___clear_cache((char *)(addr), (char *)(addr) + (size)); \
+
 Cache *cache_create(void)
 {
     Cache *cache = malloc(sizeof(Cache));
     assert(cache && "Out of memory");
     memset(cache, 0, sizeof(Cache));
-    cache->cg = codegen_create();
+    // cache->cg = codegen_create();
     return cache;
 }
 
@@ -18,7 +21,7 @@ void cache_destroy(Cache *cache)
         CacheEntry *entry = &cache->table[i];
         if (entry->pc != 0) da_free(*entry);
     }
-    codegen_destroy(cache->cg);
+    // codegen_destroy(cache->cg);
     free(cache);
 }
 
@@ -30,14 +33,17 @@ void cache_touch(Cache *cache, CacheEntry *entry)
     entry->access_count++;
     cache->last = entry;
 
-    if (entry->access_count >= CACHE_HOT_COUNT && !entry->code) {
-        codegen_compile(cache->cg, entry);
-    }
+    // if (entry->access_count >= CACHE_HOT_COUNT && !entry->code) {
+    //     codegen_compile(cache->cg, entry);
+    //     if (entry->code) {
+    //         sys_icache_invalidate(entry->code, entry->code_length);
+    //     }
+    // }
 }
 
 static void cache__reset_entry(Cache *cache, CacheEntry *entry)
 {
-    if (entry->code) codegen_free(cache->cg, entry->code, entry->code_length);
+    // if (entry->code) codegen_free(cache->cg, entry->code, entry->code_length);
     Instr *saved_items = entry->items;
     size_t saved_capacity = entry->capacity;
     memset(entry, 0, sizeof(CacheEntry));
@@ -124,4 +130,11 @@ fill_entry:
     }
 
     return entry;
+}
+
+void cache_print(const CacheEntry *entry)
+{
+    da_foreach(Instr, instr, entry) {
+        printf("[%lx] %s\n", instr->curr_pc, instr_to_string(instr));
+    }
 }

@@ -2,7 +2,7 @@
 #define CACHE_H
 
 #include "decode.h"
-#include "codegen.h"
+// #include "codegen.h"
 
 #define CACHE_SIZE 4096
 #define CACHE_HOT_COUNT 10000
@@ -54,19 +54,13 @@ typedef struct {
     CacheEntry table[CACHE_SIZE];
     CacheEntry *last;
     u64 timestamp_counter;
-    CodeGenerator *cg;
+    // CodeGenerator *cg;
 } Cache;
 
 Cache *cache_create(void);
 void cache_destroy(Cache *cache);
 CacheEntry *cache_get(Cache *cache, u64 pc);
 void cache_touch(Cache *cache, CacheEntry *entry);
-
-#define sys_icache_invalidate(addr, size) \
-    do { \
-        if (addr) { \
-            __builtin___clear_cache((char *)(addr), (char *)(addr) + (size)); \
-        } \
-    } while (0)
+void cache_print(const CacheEntry *entry);
 
 #endif // CACHE_H

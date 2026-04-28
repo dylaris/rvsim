@@ -1,4 +1,5 @@
 #include "template.h"
+#include "interp_util.h"
 #include "codegen.h"
 
 #define FLOW_SET_EXPR(expr) \
@@ -259,11 +260,13 @@ typedef void (*CodeGenFunc)(String_Builder *, const Instr *);
 static CodeGenFunc codegen_table[] = { INSTRUCTION_LIST(X) };
 #undef X
 
-#if 0
+#if 1
 
 #define CODEGEN_PROLOGUE                                 \
     "#include \"cpu.h\"                              \n" \
     "#include \"mmu.h\"                              \n" \
+    "#include \"flow.h\"                             \n" \
+    "#include \"interp_util.h\"                      \n" \
     "#include \"memory.h\"                           \n" \
     "void start(volatile CPUState *restrict state) { \n" \
 
@@ -289,15 +292,13 @@ static CodeGenFunc codegen_table[] = { INSTRUCTION_LIST(X) };
     "    u32 w;                                     \n" \
     "    f32 s;                                     \n" \
     "} FPR;                                         \n" \
-    "#define IS_TRAP(flow) ((flow)>FLOW_TRAP_BEGIN) \n" \
+    "#define IS_TRAP(flow) ((flow)>=FLOW_ECALL)     \n" \
     "typedef enum {                                 \n" \
     "    FLOW_NONE = 0,                             \n" \
     "    FLOW_BRANCH_TAKEN,                         \n" \
     "    FLOW_BRANCH_NOT_TAKEN,                     \n" \
     "    FLOW_DIRECT_JUMP,                          \n" \
     "    FLOW_INDIRECT_JUMP,                        \n" \
-    "    FLOW_SKIP_CODEGEN,                         \n" \
-    "    FLOW_TRAP_BEGIN,                           \n" \
     "    FLOW_ECALL                                 \n" \
     "} Flow;                                        \n" \
     "typedef struct {                               \n" \

@@ -6,7 +6,6 @@ riscv-tests/
 bin/
 nob
 nob.old
-report/
 rvdb
 rvdb.c
 clay-probe

@@ -1,0 +1,11 @@
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 9369162
+Total time (secs): 9.369162
+Iterations/Sec   : 640.398789
+ERROR! Must execute for at least 10 secs for a valid result!
+Iterations       : 6000
+Compiler version : GCC12.2.0
+Compiler flags   : -O2
+Memory location  : Main memory (heap)
+Errors detected

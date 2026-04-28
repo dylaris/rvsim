@@ -1,0 +1,30 @@
+BYTEmark* Native Mode Benchmark ver. 2 (10/95)
+Index-split by Andrew D. Balsa (11/97)
+Linux/Unix* port by Uwe F. Mayer (12/96,11/97)
+
+TEST                : Iterations/sec.  : Old Index   : New Index
+                    :                  : Pentium 90* : AMD K6/233*
+--------------------:------------------:-------------:------------
+NUMERIC SORT        :          321.27  :       8.24  :       2.71
+STRING SORT         :          9.2371  :       4.13  :       0.64
+BITFIELD            :      1.0054e+08  :      17.25  :       3.60
+FP EMULATION        :          38.276  :      18.37  :       4.24
+FOURIER             :          8567.8  :       9.74  :       5.47
+ASSIGNMENT          :          10.412  :      39.62  :      10.28
+IDEA                :          1590.7  :      24.33  :       7.22
+HUFFMAN             :          712.72  :      19.76  :       6.31
+NEURAL NET          :          5.9452  :       9.55  :       4.02
+LU DECOMPOSITION    :          373.87  :      19.37  :      13.99
+==========================ORIGINAL BYTEMARK RESULTS==========================
+INTEGER INDEX       : 15.398
+FLOATING-POINT INDEX: 12.170
+Baseline (MSDOS*)   : Pentium* 90, 256 KB L2-cache, Watcom* compiler 10.0
+==============================LINUX DATA BELOW===============================
+CPU                 :
+L2 Cache            :
+OS                  :
+MEMORY INDEX        : 2.870
+INTEGER INDEX       : 4.782
+FLOATING-POINT INDEX: 6.750
+Baseline (LINUX)    : AMD K6/233*, 512 KB L2-cache, gcc 2.7.2.3, libc-5.4.38
+* Trademarks are property of their respective holder.
